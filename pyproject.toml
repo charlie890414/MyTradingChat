@@ -1,0 +1,12 @@
+[project]
+name = "my-trading-chat"
+version = "0.1.0"
+description = "Codex-orchestrated, evidence-grounded equity research debates"
+requires-python = ">=3.11"
+dependencies = ["yfinance>=0.2.54"]
+
+[project.scripts]
+trading-debate = "trading_debate:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trading Debate"
+  short_description: "Run evidence-grounded multi-agent equity debates"
+  default_prompt: "分析 NVDA，牛熊各辯三回合，輸出完整研究報告。"
