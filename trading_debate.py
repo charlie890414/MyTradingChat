@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
-import sys
-import textwrap
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 
@@ -72,6 +75,115 @@ def scalar(value: Any) -> Any:
         return str(value)
 
 
+def request_json(url: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None,
+                 method: str = "GET", body: bytes | None = None) -> Any:
+    if params:
+        url = f"{url}?{urlencode({key: value for key, value in params.items() if value is not None})}"
+    request = Request(url, data=body, method=method, headers={"User-Agent": "MyTradingChat/0.1", **(headers or {})})
+    with urlopen(request, timeout=20) as response:  # nosec B310: fixed HTTPS provider URLs only
+        return json.loads(response.read().decode("utf-8"))
+
+
+def taiwan_code(symbol: str) -> str | None:
+    match = re.fullmatch(r"(\d{4,6})(?:\.(?:TW|TWO))?", symbol.upper())
+    return match.group(1) if match else None
+
+
+def insert_evidence(con: sqlite3.Connection, run_id: str, source: str, title: str, payload: Any,
+                    *, url: str | None = None, published_at: str | None = None) -> None:
+    con.execute(
+        "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (run_id, source, title, url, published_at, as_json(payload), utc_now()),
+    )
+
+
+def connector_status(con: sqlite3.Connection, run_id: str, source: str, state: str, detail: str) -> None:
+    insert_evidence(con, run_id, source, f"Connector {state}", {"state": state, "detail": detail})
+
+
+def fetch_alpha_vantage(con: sqlite3.Connection, run_id: str, symbol: str, limit: int) -> int:
+    key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    if not key:
+        connector_status(con, run_id, "Alpha Vantage", "skipped", "Set ALPHA_VANTAGE_API_KEY to enable NEWS_SENTIMENT.")
+        return 0
+    data = request_json("https://www.alphavantage.co/query", {"function": "NEWS_SENTIMENT", "tickers": symbol, "limit": limit, "apikey": key})
+    if "Error Message" in data or "Information" in data:
+        raise RuntimeError(data.get("Error Message") or data.get("Information"))
+    for article in data.get("feed", []):
+        insert_evidence(con, run_id, "Alpha Vantage News & Sentiment", article.get("title", "Untitled article"), article,
+                        url=article.get("url"), published_at=article.get("time_published"))
+    return len(data.get("feed", []))
+
+
+def fetch_finnhub(con: sqlite3.Connection, run_id: str, symbol: str, limit: int) -> int:
+    key = os.getenv("FINNHUB_API_KEY")
+    if not key:
+        connector_status(con, run_id, "Finnhub", "skipped", "Set FINNHUB_API_KEY to enable company news.")
+        return 0
+    end = datetime.now(UTC).date()
+    start = end - timedelta(days=365)
+    items = request_json("https://finnhub.io/api/v1/company-news", {"symbol": symbol, "from": start.isoformat(), "to": end.isoformat(), "token": key})
+    if isinstance(items, dict) and items.get("error"):
+        raise RuntimeError(items["error"])
+    for article in (items or [])[:limit]:
+        insert_evidence(con, run_id, "Finnhub Company News", article.get("headline", "Untitled article"), article,
+                        url=article.get("url"), published_at=str(article.get("datetime") or ""))
+    return len((items or [])[:limit])
+
+
+def fetch_finmind(con: sqlite3.Connection, run_id: str, symbol: str, limit: int) -> int:
+    code = taiwan_code(symbol)
+    if not code:
+        connector_status(con, run_id, "FinMind", "skipped", "FinMind TaiwanStockNews is only queried for Taiwan ticker codes.")
+        return 0
+    end = datetime.now(UTC).date()
+    data = request_json("https://api.finmindtrade.com/api/v4/data", {
+        "dataset": "TaiwanStockNews", "data_id": code, "start_date": (end - timedelta(days=365)).isoformat(),
+        "end_date": end.isoformat(), "token": os.getenv("FINMIND_TOKEN"),
+    })
+    if data.get("status") not in (200, "200"):
+        raise RuntimeError(data.get("msg") or data.get("message") or str(data))
+    items = data.get("data", [])
+    for article in items[-limit:]:
+        insert_evidence(con, run_id, "FinMind TaiwanStockNews", article.get("title") or article.get("headline") or "Taiwan stock news", article,
+                        url=article.get("link") or article.get("url"), published_at=str(article.get("date") or ""))
+    return len(items[-limit:])
+
+
+def fetch_twse_mops(con: sqlite3.Connection, run_id: str, symbol: str, limit: int = 0) -> int:
+    code = taiwan_code(symbol)
+    if not code:
+        connector_status(con, run_id, "TWSE OpenAPI / MOPS", "skipped", "Official disclosures are only queried for Taiwan ticker codes.")
+        return 0
+    records = request_json("https://openapi.twse.com.tw/v1/opendata/t187ap04_L")
+    profile = next((item for item in records if str(item.get("公司代號", "")).strip() == code), None)
+    if not profile:
+        connector_status(con, run_id, "TWSE OpenAPI / MOPS", "empty", f"No listed-company profile found for {code}.")
+        return 0
+    insert_evidence(con, run_id, "TWSE OpenAPI / MOPS", "Official listed-company disclosure profile", profile,
+                    url="https://openapi.twse.com.tw/v1/opendata/t187ap04_L")
+    return 1
+
+
+def fetch_reddit_summary(con: sqlite3.Connection, run_id: str, symbol: str, limit: int) -> int:
+    client_id, secret = os.getenv("REDDIT_CLIENT_ID"), os.getenv("REDDIT_CLIENT_SECRET")
+    if not client_id or not secret:
+        connector_status(con, run_id, "Reddit", "skipped", "Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET for official OAuth access.")
+        return 0
+    token_data = request_json("https://www.reddit.com/api/v1/access_token", headers={"Authorization": "Basic " + __import__("base64").b64encode(f"{client_id}:{secret}".encode()).decode(), "Content-Type": "application/x-www-form-urlencoded"}, method="POST", body=b"grant_type=client_credentials")
+    token = token_data.get("access_token")
+    if not token:
+        raise RuntimeError(token_data.get("error") or "Reddit OAuth token was not returned")
+    listing = request_json("https://oauth.reddit.com/search", {"q": symbol, "sort": "new", "limit": limit, "type": "link"}, headers={"Authorization": f"Bearer {token}"})
+    posts = listing.get("data", {}).get("children", [])
+    aggregate = {"query": symbol, "post_count": len(posts), "score_total": sum(item.get("data", {}).get("score", 0) for item in posts),
+                 "comment_total": sum(item.get("data", {}).get("num_comments", 0) for item in posts),
+                 "sample_urls": ["https://reddit.com" + item.get("data", {}).get("permalink", "") for item in posts]}
+    # Store only an aggregate and URLs: do not retain post bodies or use Reddit user content as model training data.
+    insert_evidence(con, run_id, "Reddit public-discussion proxy", "OAuth search aggregate (no post bodies retained)", aggregate)
+    return len(posts)
+
+
 def cmd_fetch(args: argparse.Namespace) -> None:
     try:
         import yfinance as yf
@@ -96,22 +208,28 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                  "return_1y": float(closes.iloc[-1] / closes.iloc[0] - 1) if len(closes) > 1 else None,
                  "high_1y": float(closes.max()) if len(closes) else None,
                  "low_1y": float(closes.min()) if len(closes) else None}
-        now = utc_now()
         con.execute("DELETE FROM evidence WHERE run_id = ?", (args.run_id,))
-        con.execute("INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (args.run_id, "Yahoo Finance", "Fundamentals snapshot", None, None, as_json(fundamentals), now))
-        con.execute("INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (args.run_id, "Yahoo Finance", "One-year price snapshot", None, price["as_of"], as_json(price), now))
+        insert_evidence(con, args.run_id, "Yahoo Finance", "Fundamentals snapshot", fundamentals)
+        insert_evidence(con, args.run_id, "Yahoo Finance", "One-year price snapshot", price, published_at=price["as_of"])
         stored_news = 0
         for item in news or []:
             content = item.get("content", item)
             title = content.get("title") or item.get("title") or "Untitled Yahoo Finance item"
             url = content.get("canonicalUrl", {}).get("url") or content.get("clickThroughUrl", {}).get("url")
             published = content.get("pubDate") or item.get("providerPublishTime")
-            con.execute("INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (args.run_id, "Yahoo Finance News", title, url, str(published) if published else None, as_json(item), now))
+            insert_evidence(con, args.run_id, "Yahoo Finance News", title, item, url=url, published_at=str(published) if published else None)
             stored_news += 1
-    print(as_json({"run_id": args.run_id, "fundamental_fields": len(fundamentals), "news_items": stored_news, "price": price}))
+        connectors = {"Alpha Vantage": fetch_alpha_vantage, "Finnhub": fetch_finnhub, "FinMind": fetch_finmind,
+                      "TWSE OpenAPI / MOPS": fetch_twse_mops, "Reddit": fetch_reddit_summary}
+        connector_counts, connector_errors = {}, {}
+        for name, fetcher in connectors.items():
+            try:
+                connector_counts[name] = fetcher(con, args.run_id, run["symbol"], args.news_limit)
+            except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+                connector_errors[name] = str(exc)
+                connector_status(con, args.run_id, name, "error", str(exc))
+    print(as_json({"run_id": args.run_id, "fundamental_fields": len(fundamentals), "yahoo_news_items": stored_news,
+                   "connector_items": connector_counts, "connector_errors": connector_errors, "price": price}))
 
 
 def cmd_context(args: argparse.Namespace) -> None:

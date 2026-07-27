@@ -19,6 +19,8 @@ Use Codex subagents for reasoning; use `trading_debate.py` for evidence, persist
 
    Give every subagent the same JSON context. Treat it as the source of record. State data gaps instead of inventing facts. Yahoo Finance News is public-news coverage, not an exhaustive news wire; use it for the news and sentiment proxy only.
 
+   The fetcher adds optional sources when their environment credentials are configured: Alpha Vantage (`ALPHA_VANTAGE_API_KEY`), Finnhub (`FINNHUB_API_KEY`), FinMind (`FINMIND_TOKEN`, Taiwan tickers), TWSE OpenAPI/MOPS (Taiwan tickers), and Reddit OAuth (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`). Read `Connector skipped` or `Connector error` entries as availability metadata, not market evidence.
+
 2. Spawn four independent Codex subagents in parallel: `Fundamentals Analyst`, `Technical Analyst`, `News & Events Analyst`, and `Sentiment Analyst`. Require each to cite evidence-item titles, separate facts from inference, list upside/downside catalysts, and end with an initial stance. The Sentiment Analyst must label its output as a proxy based on public Yahoo Finance headlines.
 
 3. Persist the returned reports through the parent agent, one record per analyst.
@@ -52,6 +54,7 @@ Use a prior report as context only after telling the user its creation time. Ref
 ## Quality gates
 
 - Do not claim real-time data; cite the evidence pack's fetch time.
+- Treat Alpha Vantage scores and Reddit engagement as sentiment proxies, never as facts or direct trade signals. Reddit evidence contains only a run-level aggregate and URLs; do not request, persist, or train on post bodies.
 - Do not conceal disagreement. Preserve analyst reports and every debate turn in the report.
 - Do not manufacture citations, targets, financial metrics, or price levels.
 - Recommendations are research outputs only; do not produce execution instructions.
