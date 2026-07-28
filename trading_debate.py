@@ -193,9 +193,11 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         run = con.execute("SELECT symbol FROM runs WHERE id = ?", (args.run_id,)).fetchone()
         if not run:
             raise SystemExit(f"Unknown run id: {args.run_id}")
+        end = datetime.now(UTC).date()
+        start = end - timedelta(days=365)
         ticker = yf.Ticker(run["symbol"])
         info = ticker.get_info()
-        history = ticker.history(period="1y", auto_adjust=False)
+        history = ticker.history(start=start, end=end, auto_adjust=False)
         news = ticker.get_news(count=args.news_limit, tab="news")
         fields = ["shortName", "longName", "currency", "exchange", "sector", "industry", "marketCap",
                   "trailingPE", "forwardPE", "priceToBook", "dividendYield", "returnOnEquity",
