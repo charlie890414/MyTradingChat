@@ -1,6 +1,45 @@
-.venv/
+# Environments / secrets
+.env
+.env.*
+!.env.example
+
+# Python caches and bytecode
 __pycache__/
 *.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Type stubs
+.pytype/
+
+# Editors / IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime data
 data/
 reports/
-.env

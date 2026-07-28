@@ -12,11 +12,12 @@ from uuid import uuid4
 from .db import connect, connector_status
 from .finance import CONNECTORS, fetch_yahoo
 from .render import cmd_render
-from .utils import as_json, utc_now
+from .utils import as_json, load_dotenv, utc_now
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
 DEFAULT_REPORTS = ROOT.parent / "reports"
+DEFAULT_ENV = ROOT.parent / ".env"
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -60,6 +61,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 "connector_items": connector_counts,
                 "connector_errors": connector_errors,
                 "price": fetched["price"],
+                "technicals": fetched["technicals"],
             }
         )
     )
@@ -175,6 +177,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    load_dotenv(DEFAULT_ENV)
     args = parser().parse_args()
     if hasattr(args, "rounds") and args.rounds < 1:
         raise SystemExit("--rounds must be at least 1")

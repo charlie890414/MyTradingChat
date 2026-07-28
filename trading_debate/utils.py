@@ -8,6 +8,10 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from dotenv import load_dotenv
+
+__all__ = ["as_json", "load_dotenv", "request_json", "utc_now"]
+
 
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()

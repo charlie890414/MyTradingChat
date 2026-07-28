@@ -171,6 +171,8 @@ def test_cmd_fetch_unknown_run(tmp_path: Path):
 
 
 def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
+    import pandas as pd
+
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
     con.execute(
@@ -180,9 +182,17 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    mock_history = MagicMock()
-    mock_history.index = [datetime(2025, 7, 28, tzinfo=UTC)]
-    mock_history.__getitem__ = lambda self, key: [150.0] if key == "Close" else []
+    idx = pd.DatetimeIndex([datetime(2025, 7, 28, tzinfo=UTC)])
+    mock_history = pd.DataFrame(
+        {
+            "Open": [150.0],
+            "High": [151.0],
+            "Low": [149.0],
+            "Close": [150.0],
+            "Volume": [1000.0],
+        },
+        index=idx,
+    )
 
     mock_ticker = MagicMock()
     mock_ticker.get_info.return_value = {
@@ -212,6 +222,8 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
+    assert parsed["price"]["close"] == 150.0
+    assert parsed["technicals"]["available"] is True
 
 
 def test_cmd_fetch_price_calculation(tmp_path: Path, capsys):
@@ -394,6 +406,8 @@ def test_request_json_without_params():
 
 
 def test_yahoo_history_uses_explicit_dates(tmp_path: Path, capsys):
+    import pandas as pd
+
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
     con.execute(
@@ -403,9 +417,17 @@ def test_yahoo_history_uses_explicit_dates(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    mock_history = MagicMock()
-    mock_history.index = [datetime(2025, 7, 28, tzinfo=UTC)]
-    mock_history.__getitem__ = lambda self, key: [100.0] if key == "Close" else []
+    idx = pd.DatetimeIndex([datetime(2025, 7, 28, tzinfo=UTC)])
+    mock_history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [101.0],
+            "Low": [99.0],
+            "Close": [100.0],
+            "Volume": [1000.0],
+        },
+        index=idx,
+    )
 
     mock_ticker = MagicMock()
     mock_ticker.get_info.return_value = {"currentPrice": 100.0}
@@ -558,6 +580,8 @@ def test_cmd_record_valid(tmp_path: Path, capsys):
 
 def test_yahoo_history_does_not_use_period_arg(tmp_path: Path, capsys):
     """Confirm the fix: ticker.history is called with start/end, not period='1y'."""
+    import pandas as pd
+
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
     con.execute(
@@ -567,9 +591,17 @@ def test_yahoo_history_does_not_use_period_arg(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    mock_history = MagicMock()
-    mock_history.index = [datetime(2025, 7, 28, tzinfo=UTC)]
-    mock_history.__getitem__ = lambda self, key: [100.0] if key == "Close" else []
+    idx = pd.DatetimeIndex([datetime(2025, 7, 28, tzinfo=UTC)])
+    mock_history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [101.0],
+            "Low": [99.0],
+            "Close": [100.0],
+            "Volume": [1000.0],
+        },
+        index=idx,
+    )
 
     mock_ticker = MagicMock()
     mock_ticker.get_info.return_value = {"currentPrice": 100.0}
@@ -598,3 +630,231 @@ def test_yahoo_history_does_not_use_period_arg(tmp_path: Path, capsys):
     assert "start" in kwargs
     assert "end" in kwargs
     assert kwargs.get("period") is None
+
+
+def _make_history(n: int = 250, start_price: float = 100.0, end_price: float = 150.0):
+    import pandas as pd
+
+    dates = pd.date_range(end=datetime(2026, 7, 28, tzinfo=UTC), periods=n, freq="D")
+    base = [start_price + (end_price - start_price) * i / (n - 1) for i in range(n)]
+    closes = pd.Series(
+        [
+            price + (1 if i % 2 == 0 else -1) * 0.5 * (1 + (i % 7) * 0.1)
+            for i, price in enumerate(base)
+        ],
+        index=dates,
+    )
+    df = pd.DataFrame(
+        {
+            "Open": closes - 0.5,
+            "High": closes + 1.5,
+            "Low": closes - 1.5,
+            "Close": closes,
+            "Volume": [1_000_000 + i * 1000 for i in range(n)],
+        },
+        index=dates,
+    )
+    return df
+
+
+def test_compute_technicals_returns_full_indicator_set():
+    history = _make_history(250)
+    indicators = td.compute_technicals(history)
+    assert indicators["available"] is True
+    assert indicators["bars"] == 250
+    assert indicators["ma_50"] is not None
+    assert indicators["ma_200"] is not None
+    assert indicators["rsi_14"] is not None
+    assert 0 <= indicators["rsi_14"] <= 100
+    assert indicators["macd"]["line"] is not None
+    assert indicators["macd"]["signal"] is not None
+    assert indicators["macd"]["histogram"] is not None
+    bb = indicators["bollinger_20_2"]
+    assert bb["middle"] is not None
+    assert bb["upper"] > bb["middle"] > bb["lower"]
+    assert indicators["kdj_k"] is not None
+    assert indicators["kdj_d"] is not None
+    assert indicators["kdj_j"] is not None
+    assert indicators["high_52w"] is not None
+    assert indicators["low_52w"] is not None
+    assert indicators["avg_volume_20d"] is not None
+    assert indicators["volume_trend_20d_vs_60d"] is not None
+    sr = indicators["support_resistance"]
+    assert sr["support"] is not None
+    assert sr["resistance"] is not None
+
+
+def test_compute_technicals_handles_short_history():
+    history = _make_history(5)
+    indicators = td.compute_technicals(history)
+    assert indicators["available"] is True
+    assert indicators["ma_50"] is None
+    assert indicators["ma_200"] is None
+    assert indicators["kdj_k"] is None
+
+
+def test_compute_technicals_handles_empty_history():
+    import pandas as pd
+
+    empty = pd.DataFrame()
+    indicators = td.compute_technicals(empty)
+    assert indicators["available"] is False
+
+
+def test_history_to_records_round_trips():
+    history = _make_history(3)
+    records = td.history_to_records(history)
+    assert len(records) == 3
+    for record in records:
+        assert "date" in record
+        for col in ("open", "high", "low", "close", "volume"):
+            assert col in record
+
+
+def test_cmd_fetch_persists_technicals_and_ohlcv(tmp_path: Path, capsys):
+
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    history = _make_history(60)
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {"currentPrice": 150.0}
+    mock_ticker.history.return_value = history
+    mock_ticker.get_news.return_value = []
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.news_limit = 10
+
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
+                            td.cmd_fetch(args)
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    titles = [
+        row["title"]
+        for row in con.execute(
+            "SELECT title FROM evidence WHERE run_id = ? ORDER BY id", ("run-1",)
+        ).fetchall()
+    ]
+    assert "Technical indicators (from daily OHLCV)" in titles
+    assert "Daily OHLCV history" in titles
+    payload_row = con.execute(
+        "SELECT payload_json FROM evidence WHERE run_id = ? AND title = ?",
+        ("run-1", "Daily OHLCV history"),
+    ).fetchone()
+    payload = json.loads(payload_row["payload_json"])
+    assert payload["bars"] == 60
+    assert len(payload["records"]) == 60
+    first = payload["records"][0]
+    for col in ("open", "high", "low", "close", "volume"):
+        assert col in first
+    con.close()
+
+
+def test_cmd_fetch_technicals_output_includes_all_indicators(tmp_path: Path, capsys):
+    history = _make_history(250)
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {"currentPrice": 150.0}
+    mock_ticker.history.return_value = history
+    mock_ticker.get_news.return_value = []
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.news_limit = 10
+
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
+                            td.cmd_fetch(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    techs = parsed["technicals"]
+    assert techs["available"] is True
+    assert techs["ma_50"] is not None
+    assert techs["ma_200"] is not None
+    assert techs["rsi_14"] is not None
+    assert techs["macd"]["line"] is not None
+    assert techs["bollinger_20_2"]["middle"] is not None
+    assert techs["kdj_k"] is not None
+    assert techs["high_52w"] is not None
+    assert techs["low_52w"] is not None
+    assert techs["support_resistance"]["support"] is not None
+    assert techs["support_resistance"]["resistance"] is not None
+    assert techs["avg_volume_20d"] is not None
+    assert techs["volume_trend_20d_vs_60d"] is not None
+
+
+def test_cmd_fetch_skips_technicals_when_no_daily_data(tmp_path: Path, capsys):
+    import pandas as pd
+
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    empty_history = pd.DataFrame()
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {"currentPrice": 100.0}
+    mock_ticker.history.return_value = empty_history
+    mock_ticker.get_news.return_value = []
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.news_limit = 10
+
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
+                            td.cmd_fetch(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["technicals"]["available"] is False

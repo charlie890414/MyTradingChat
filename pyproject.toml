@@ -7,10 +7,10 @@ name = "my-trading-chat"
 version = "0.1.0"
 description = "Codex-orchestrated, evidence-grounded equity research debates"
 requires-python = ">=3.11"
-dependencies = ["yfinance>=0.2.54"]
+dependencies = ["python-dotenv>=1.0", "yfinance>=0.2.54"]
 
-[project.optional-dependencies]
-dev = ["ruff"]
+[dependency-groups]
+dev = ["ruff", "pytest", "pre-commit"]
 
 [project.scripts]
 trading-debate = "trading_debate.cli:main"
