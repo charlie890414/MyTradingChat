@@ -40,8 +40,10 @@ The Investment Committee may issue only one of:
 When the user asks for prior research, historical context, or a follow-up on a previously analysed company, search SQLite before starting a new run:
 
 ```powershell
-python .\trading_debate.py search --query "<symbol>"
+python -m trading_debate.cli search --query "<symbol>" --limit 10
 ```
+
+`--limit` controls the maximum number of past runs returned (default 10).
 
 When using a prior report:
 
@@ -53,18 +55,12 @@ When using a prior report:
 ### 2. Start a run
 
 ```powershell
-python .\trading_debate.py init --symbol <SYMBOL> --question "<question>" --rounds <N>
+python -m trading_debate.cli init --symbol <SYMBOL> --question "<question>" --rounds <N>
 ```
 
 Capture and retain the returned `run-id`.
 
-Debate rounds must be between 1 and 5.
-
-- Default: 3 rounds
-- Minimum: 1 round
-- Maximum: 5 rounds
-
-Do not silently increase the number of rounds.
+Debate rounds default to 3 and must be at least 1. The CLI rejects `--rounds` values less than 1. Do not silently increase the number of rounds.
 
 ### 3. Fetch evidence
 
@@ -79,9 +75,11 @@ Execute the evidence sub-skill (`trading-debate-evidence`), which covers:
 - Evidence quality framework
 
 ```powershell
-python .\trading_debate.py fetch --run-id <run-id>
-python .\trading_debate.py context --run-id <run-id>
+python -m trading_debate.cli fetch --run-id <run-id> --news-limit 10
+python -m trading_debate.cli context --run-id <run-id>
 ```
+
+`fetch` writes evidence items into the run's SQLite database; `--news-limit` caps per-source news items (default 10). `context` prints the assembled evidence pack JSON that downstream stages consume.
 
 The shared evidence pack must include run ID, symbol, user question, fetch timestamp, source metadata, evidence items, connector availability metadata, and known data gaps. It becomes the source of record for all subsequent stages.
 
@@ -96,7 +94,18 @@ Execute the analysis sub-skill (`trading-debate-analysis`). Spawn four independe
 
 Each receives the same JSON evidence pack. Do not provide one analyst's conclusions to another during this stage.
 
-The sub-skill covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<actor>.md`), persistence via `--stage analysis`, and idempotency keys.
+The sub-skill covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<actor>.md`), and idempotency keys.
+
+Persist each analyst report as it is produced:
+
+```powershell
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/fundamentals.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor technical --content-file data/staging/technical.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor news --content-file data/staging/news.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor sentiment --content-file data/staging/sentiment.md
+```
+
+Pass `--content "<markdown string>"` instead of `--content-file` for short inline payloads. The CLI requires exactly one of `--content` or `--content-file`.
 
 ### 5. Run debate stage
 
@@ -111,6 +120,15 @@ For each round:
 
 The sub-skill covers rebuttal rules (name opposing claim, quote, cite evidence IDs, identify gaps, separate fact from inference, update thesis, state conviction change), debate output format, compact debate state structure, and full history preservation.
 
+Persist each turn immediately after the rebuttal, before the next turn begins:
+
+```powershell
+python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bull --content-file data/staging/debate-round<N>-bull.md
+python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bear --content-file data/staging/debate-round<N>-bear.md
+```
+
+`--round <N>` is required for debate turns so the Committee can reconstruct turn order.
+
 ### 6. Run verdict stage
 
 Execute the verdict sub-skill (`trading-debate-verdict`). Spawn the Investment Committee subagent with all prior reports and the evidence pack.
@@ -118,6 +136,15 @@ Execute the verdict sub-skill (`trading-debate-verdict`). Spawn the Investment C
 The Committee resolves conflicts by evidence quality, not majority vote. It must not simply count bullish and bearish agents.
 
 The sub-skill covers the required output format, research rating definitions, invalidation conditions, persistence via `--stage verdict`, the render command, and the final chat response format.
+
+Persist the Committee report and render the final Markdown:
+
+```powershell
+python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --content-file data/staging/committee.md
+python -m trading_debate.cli render --run-id <run-id> --reports reports
+```
+
+`render` writes `<run-id>.md` into `--reports` (default `reports/`) combining the evidence pack, analyst reports, debate turns, and verdict.
 
 ### 7. Return result
 
