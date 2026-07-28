@@ -1,16 +1,15 @@
-"""Unit tests for trading_debate.py."""
+"""Unit tests for trading_debate package."""
+
 from __future__ import annotations
 
 import json
-import sys
 import sqlite3
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 import trading_debate as td
 
 
@@ -53,9 +52,7 @@ def test_connect(tmp_path: Path):
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
     assert isinstance(con, sqlite3.Connection)
-    tables = con.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
+    tables = con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     table_names = [row[0] for row in tables]
     assert "runs" in table_names
     assert "evidence" in table_names
@@ -133,7 +130,7 @@ def test_cmd_init(tmp_path: Path):
     args.symbol = "AAPL"
     args.question = "Analyze AAPL"
     args.rounds = 3
-    with patch("trading_debate.as_json") as mock_json:
+    with patch("trading_debate.utils.as_json") as mock_json:
         mock_json.return_value = "{}"
         td.cmd_init(args)
     con = sqlite3.connect(db_path)
@@ -154,7 +151,7 @@ def test_cmd_init_default_rounds(tmp_path: Path):
     args.symbol = "2330.TW"
     args.question = "Test"
     args.rounds = 3
-    with patch("trading_debate.as_json") as mock_json:
+    with patch("trading_debate.utils.as_json") as mock_json:
         mock_json.return_value = "{}"
         td.cmd_init(args)
     con = sqlite3.connect(db_path)
@@ -188,7 +185,10 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
     mock_history.__getitem__ = lambda self, key: [150.0] if key == "Close" else []
 
     mock_ticker = MagicMock()
-    mock_ticker.get_info.return_value = {"shortName": "Apple Inc.", "currentPrice": 150.0}
+    mock_ticker.get_info.return_value = {
+        "shortName": "Apple Inc.",
+        "currentPrice": 150.0,
+    }
     mock_ticker.history.return_value = mock_history
     mock_ticker.get_news.return_value = []
 
@@ -197,12 +197,17 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
     args.run_id = "run-1"
     args.news_limit = 10
 
-    with patch("yfinance.Ticker", return_value=mock_ticker):
-        with patch("trading_debate.fetch_alpha_vantage", return_value=0):
-            with patch("trading_debate.fetch_finnhub", return_value=0):
-                with patch("trading_debate.fetch_finmind", return_value=0):
-                    with patch("trading_debate.fetch_twse_mops", return_value=0):
-                        with patch("trading_debate.fetch_reddit_summary", return_value=0):
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
                             td.cmd_fetch(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
@@ -236,12 +241,17 @@ def test_cmd_fetch_price_calculation(tmp_path: Path, capsys):
     args.run_id = "run-1"
     args.news_limit = 10
 
-    with patch("yfinance.Ticker", return_value=mock_ticker):
-        with patch("trading_debate.fetch_alpha_vantage", return_value=0):
-            with patch("trading_debate.fetch_finnhub", return_value=0):
-                with patch("trading_debate.fetch_finmind", return_value=0):
-                    with patch("trading_debate.fetch_twse_mops", return_value=0):
-                        with patch("trading_debate.fetch_reddit_summary", return_value=0):
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
                             td.cmd_fetch(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
@@ -364,7 +374,9 @@ def test_request_json_builds_url_with_params():
     mock_response.__enter__ = MagicMock(return_value=mock_response)
     mock_response.__exit__ = MagicMock(return_value=False)
 
-    with patch("trading_debate.urlopen", return_value=mock_response) as mock_urlopen:
+    with patch(
+        "trading_debate.utils.urlopen", return_value=mock_response
+    ) as mock_urlopen:
         result = td.request_json("https://example.com/api", {"key": "value"})
     mock_urlopen.assert_called_once()
     assert result == {"status": "ok"}
@@ -376,7 +388,7 @@ def test_request_json_without_params():
     mock_response.__enter__ = MagicMock(return_value=mock_response)
     mock_response.__exit__ = MagicMock(return_value=False)
 
-    with patch("trading_debate.urlopen", return_value=mock_response):
+    with patch("trading_debate.utils.urlopen", return_value=mock_response):
         result = td.request_json("https://example.com/api")
     assert result == {"status": "ok"}
 
@@ -405,15 +417,20 @@ def test_yahoo_history_uses_explicit_dates(tmp_path: Path, capsys):
     args.run_id = "run-1"
     args.news_limit = 10
 
-    with patch("yfinance.Ticker", return_value=mock_ticker) as mock_yf:
-        with patch("trading_debate.fetch_alpha_vantage", return_value=0):
-            with patch("trading_debate.fetch_finnhub", return_value=0):
-                with patch("trading_debate.fetch_finmind", return_value=0):
-                    with patch("trading_debate.fetch_twse_mops", return_value=0):
-                        with patch("trading_debate.fetch_reddit_summary", return_value=0):
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
                             td.cmd_fetch(args)
-    mock_yf.return_value.history.assert_called_once()
-    call_kwargs = mock_yf.return_value.history.call_args.kwargs
+    mock_ticker.history.assert_called_once()
+    call_kwargs = mock_ticker.history.call_args.kwargs
     assert "start" in call_kwargs
     assert "end" in call_kwargs
     assert call_kwargs.get("period") is None
@@ -428,11 +445,26 @@ def test_cmd_render(tmp_path: Path, capsys):
     )
     con.execute(
         "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("run-1", "Yahoo Finance", "Fundamentals", None, None, '{"price": 150}', td.utc_now()),
+        (
+            "run-1",
+            "Yahoo Finance",
+            "Fundamentals",
+            None,
+            None,
+            '{"price": 150}',
+            td.utc_now(),
+        ),
     )
     con.execute(
         "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        ("run-1", "analysis", "Fundamentals Analyst", 1, "Analysis content", td.utc_now()),
+        (
+            "run-1",
+            "analysis",
+            "Fundamentals Analyst",
+            1,
+            "Analysis content",
+            td.utc_now(),
+        ),
     )
     con.commit()
     con.close()
@@ -549,12 +581,17 @@ def test_yahoo_history_does_not_use_period_arg(tmp_path: Path, capsys):
     args.run_id = "run-1"
     args.news_limit = 10
 
-    with patch("yfinance.Ticker", return_value=mock_ticker):
-        with patch("trading_debate.fetch_alpha_vantage", return_value=0):
-            with patch("trading_debate.fetch_finnhub", return_value=0):
-                with patch("trading_debate.fetch_finmind", return_value=0):
-                    with patch("trading_debate.fetch_twse_mops", return_value=0):
-                        with patch("trading_debate.fetch_reddit_summary", return_value=0):
+    with patch("trading_debate.finance.yfinance.Ticker", return_value=mock_ticker):
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
                             td.cmd_fetch(args)
     mock_ticker.history.assert_called_once()
     _, kwargs = mock_ticker.history.call_args

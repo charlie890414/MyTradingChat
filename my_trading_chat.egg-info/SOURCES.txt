@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+my_trading_chat.egg-info/PKG-INFO
+my_trading_chat.egg-info/SOURCES.txt
+my_trading_chat.egg-info/dependency_links.txt
+my_trading_chat.egg-info/entry_points.txt
+my_trading_chat.egg-info/requires.txt
+my_trading_chat.egg-info/top_level.txt
+tests/test_trading_debate.py
+trading_debate/__init__.py
+trading_debate/cli.py
+trading_debate/db.py
+trading_debate/finance.py
+trading_debate/render.py
+trading_debate/utils.py

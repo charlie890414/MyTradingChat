@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "my-trading-chat"
 version = "0.1.0"
@@ -5,8 +9,37 @@ description = "Codex-orchestrated, evidence-grounded equity research debates"
 requires-python = ">=3.11"
 dependencies = ["yfinance>=0.2.54"]
 
+[project.optional-dependencies]
+dev = ["ruff"]
+
 [project.scripts]
-trading-debate = "trading_debate:main"
+trading-debate = "trading_debate.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["trading_debate*"]
+exclude = ["data*", "reports*", "tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PT"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501", "SIM117", "PT006"]
+"trading_debate/db.py" = ["E501"]
+"trading_debate/cli.py" = ["E501"]
+"trading_debate/finance.py" = ["E501"]
+"trading_debate/render.py" = ["E501"]
+"trading_debate/utils.py" = ["E501"]
