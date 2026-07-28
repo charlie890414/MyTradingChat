@@ -1,8 +1,7 @@
 ---
-
 name: trading-debate-debate
 description: Bull vs Bear multi-round debate stage for the trading-debate skill. Spawns Bull Researcher and Bear Researcher, manages turn order, direct rebuttal rules, thesis updates, conviction changes, and persists each turn.
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Debate Stage
 

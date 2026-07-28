@@ -1,8 +1,7 @@
 ---
-
 name: trading-debate-analysis
 description: Four-analyst stage for the trading-debate skill. Spawns Fundamentals Analyst, Technical Analyst, News & Events Analyst, and Sentiment Analyst in parallel, each using the shared evidence pack, and persists their reports to staging.
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Analyst Stage
 

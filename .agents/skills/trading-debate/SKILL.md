@@ -1,8 +1,7 @@
 ---
-
 name: trading-debate
 description: Run an evidence-grounded, persistent multi-agent equity research debate in Codex. Use for requests to analyse a Taiwan- or US-listed stock, debate a bull and bear case, challenge or update an investment thesis, retrieve past research, or produce a buy/hold/reduce research rating without placing trades.
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Trading Debate
 

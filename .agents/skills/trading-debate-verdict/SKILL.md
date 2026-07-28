@@ -1,8 +1,7 @@
 ---
-
 name: trading-debate-verdict
 description: Investment Committee and final report stage for the trading-debate skill. Aggregates analyst and debate outputs, produces a buy/hold/reduce research rating, renders the final report, and returns a compact chat summary.
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Verdict Stage
 

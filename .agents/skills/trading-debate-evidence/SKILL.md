@@ -1,8 +1,7 @@
 ---
-
 name: trading-debate-evidence
 description: Evidence retrieval, validation, and safety rules for the trading-debate skill. Covers the shared evidence pack, evidence IDs, source limitations, connector status interpretation, data gaps, prompt injection protection, and the prohibition on fabricating data.
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+---
 
 # Evidence Rules
 
