@@ -21,7 +21,7 @@ def fetch_finmind(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
                 payload={"state": "skipped", "detail": detail},
             )
         ]
-    start, end = date_range_days(365)
+    start, _end = date_range_days(365)
     headers = {}
     token = os.getenv("FINMIND_TOKEN")
     if token:
@@ -32,7 +32,6 @@ def fetch_finmind(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
             "dataset": "TaiwanStockNews",
             "data_id": code,
             "start_date": start,
-            "end_date": end,
         },
         headers=headers,
     )

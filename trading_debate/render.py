@@ -60,9 +60,10 @@ def cmd_render(args: argparse.Namespace) -> None:
                 body.extend(
                     ["", f"### {part['actor']}{round_label}", "", part["content"]]
                 )
-    report_dir = args.reports
+    report_date = run["created_at"][:10]
+    report_dir = args.reports / report_date / run["symbol"]
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"{run['id']}.md"
+    path = report_dir / "report.md"
     path.write_text("\n".join(body).strip() + "\n", encoding="utf-8")
     with connect(args.db) as con:
         con.execute(

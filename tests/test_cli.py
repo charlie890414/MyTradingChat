@@ -603,10 +603,11 @@ def test_cmd_search_no_results(tmp_path: Path, capsys):
 def test_cmd_render(tmp_path: Path, capsys):
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
+    created_at = "2026-07-30T12:00:00+00:00"
     con.execute(
         "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+        ("run-1", "AAPL", "Test", 3, created_at, "active"),
     )
     con.execute(
         "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
@@ -646,11 +647,16 @@ def test_cmd_render(tmp_path: Path, capsys):
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
     report_path = Path(parsed["report_path"])
+    assert report_path == args.reports / "2026-07-30" / "AAPL" / "report.md"
     assert report_path.exists()
     content = report_path.read_text(encoding="utf-8")
     assert "AAPL" in content
     assert "Fundamentals Analyst" in content
     assert "Analysis content" in content
+
+    report_path.write_text("old report\n", encoding="utf-8")
+    td.cmd_render(args)
+    assert report_path.read_text(encoding="utf-8") != "old report\n"
 
 
 def test_cmd_record_unknown_run(tmp_path: Path, capsys):

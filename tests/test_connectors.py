@@ -5,12 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
-from trading_debate.connectors.alpha_vantage import fetch_alpha_vantage
+from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
-from trading_debate.connectors.reddit import fetch_reddit_summary
+from trading_debate.connectors.google_news import fetch_google_news
+from trading_debate.connectors.reddit import _fetch_subreddit_rss, fetch_reddit_summary
 from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
 
@@ -44,39 +44,96 @@ def test_fetch_yahoo_uses_injected_ticker():
     mock_ticker.get_info.assert_called_once()
 
 
-@patch("trading_debate.connectors.alpha_vantage.os.getenv")
-@patch("trading_debate.connectors.alpha_vantage.request_json")
-def test_fetch_alpha_vantage_returns_items_when_key_present(mock_request, mock_getenv):
-    mock_getenv.return_value = "fake-key"
-    mock_request.return_value = {
-        "feed": [
-            {
-                "title": "Alpha article",
-                "url": "https://example.com",
-                "time_published": "20260101T000000",
-            }
-        ]
-    }
-    items = fetch_alpha_vantage("run-1", "AAPL", 10)
-    assert len(items) == 1
-    assert items[0].source == "Alpha Vantage News & Sentiment"
+@patch("trading_debate.connectors.google_news.feedparser")
+def test_fetch_google_news_returns_items(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {
+                    "title": "Apple hits new high",
+                    "link": "https://example.com/1",
+                    "published": "Mon, 28 Jul 2026 10:00:00 GMT",
+                    "summary": "Apple stock reaches record.",
+                    "source": {"title": "Reuters", "href": "https://reuters.com"},
+                },
+                {
+                    "title": "iPhone sales surge",
+                    "link": "https://example.com/2",
+                    "published": "",
+                    "summary": "Sales top estimates.",
+                },
+            ]
+        },
+    )()
+    items = fetch_google_news("run-1", "AAPL", 10)
+    assert len(items) == 2
+    assert items[0].source == "Google News RSS"
+    assert items[0].title == "Apple hits new high"
+    assert items[0].url == "https://example.com/1"
+    assert items[0].published_at is not None
 
 
-@patch("trading_debate.connectors.alpha_vantage.os.getenv")
-def test_fetch_alpha_vantage_returns_skipped_status_when_key_missing(mock_getenv):
-    mock_getenv.return_value = None
-    items = fetch_alpha_vantage("run-1", "AAPL", 10)
-    assert len(items) == 1
-    assert items[0].title == "Connector skipped"
+@patch("trading_debate.connectors.bing_news.feedparser")
+def test_fetch_bing_news_returns_items(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {
+                    "title": "Microsoft earnings beat",
+                    "link": "https://example.com/1",
+                    "published": "Mon, 28 Jul 2026 14:00:00 GMT",
+                    "summary": "MSFT reports strong quarter.",
+                },
+                {
+                    "title": "Azure growth accelerates",
+                    "link": "https://example.com/2",
+                    "published": "Mon, 28 Jul 2026 15:00:00 GMT",
+                    "summary": "Cloud revenue up 30%.",
+                },
+            ]
+        },
+    )()
+    items = fetch_bing_news("run-1", "MSFT", 10)
+    assert len(items) == 2
+    assert items[0].source == "Bing News RSS"
+    assert items[0].title == "Microsoft earnings beat"
+    assert items[0].url == "https://example.com/1"
 
 
-@patch("trading_debate.connectors.alpha_vantage.os.getenv")
-@patch("trading_debate.connectors.alpha_vantage.request_json")
-def test_fetch_alpha_vantage_raises_on_api_error(mock_request, mock_getenv):
-    mock_getenv.return_value = "fake-key"
-    mock_request.return_value = {"Information": "API rate limit reached"}
-    with pytest.raises(RuntimeError, match="API rate limit"):
-        fetch_alpha_vantage("run-1", "AAPL", 10)
+@patch("trading_debate.connectors.google_news.feedparser")
+def test_fetch_google_news_respects_limit(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {"title": f"Article {i}", "link": f"https://e.com/{i}", "published": ""}
+                for i in range(20)
+            ]
+        },
+    )()
+    items = fetch_google_news("run-1", "AAPL", 5)
+    assert len(items) == 5
+
+
+@patch("trading_debate.connectors.bing_news.feedparser")
+def test_fetch_bing_news_respects_limit(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {"title": f"Article {i}", "link": f"https://e.com/{i}", "published": ""}
+                for i in range(15)
+            ]
+        },
+    )()
+    items = fetch_bing_news("run-1", "MSFT", 3)
+    assert len(items) == 3
 
 
 @patch("trading_debate.connectors.finnhub.os.getenv")
@@ -152,20 +209,57 @@ def test_fetch_twse_mops_returns_skipped_for_non_taiwan_symbol():
     assert items[0].title == "Connector skipped"
 
 
-@patch("trading_debate.connectors.reddit.request_json")
-def test_fetch_reddit_summary_returns_aggregate(mock_request):
-    mock_request.return_value = {
-        "data": {
-            "children": [
-                {"data": {"score": 10, "num_comments": 5, "permalink": "/r/x/1"}}
-            ]
+def test_fetch_reddit_summary_returns_aggregate():
+    posts = [
+        {
+            "subreddit": "stocks",
+            "title": "AAPL discussion",
+            "url": "https://reddit.com/r/stocks/comments/1/aapl",
+            "created_utc": 1704067200.0,
+            "published": "2026-01-01T00:00:00+00:00",
+            "source": "rss",
         }
-    }
-    items = fetch_reddit_summary("run-1", "AAPL", 10)
+    ]
+    with patch(
+        "trading_debate.connectors.reddit._fetch_all_subreddits", return_value=posts
+    ):
+        items = fetch_reddit_summary("run-1", "AAPL", 10)
     assert len(items) == 1
     payload = items[0].payload
     assert payload["post_count"] == 1
-    assert payload["score_total"] == 10
+    assert payload["score_total"] is None
+    assert payload["comment_total"] is None
+    assert payload["sample_urls"] == ["https://reddit.com/r/stocks/comments/1/aapl"]
+
+
+def test_fetch_reddit_rss_parses_atom_entries():
+    atom = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <title>NVDA earnings beat</title>
+        <published>2026-05-20T14:30:00Z</published>
+        <link rel="alternate" href="https://reddit.com/r/stocks/comments/1/nvda" />
+      </entry>
+    </feed>
+    """
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return atom
+
+    with patch("trading_debate.connectors.reddit.urlopen", return_value=Response()):
+        posts = _fetch_subreddit_rss("NVDA", "stocks", 5, timeout=5.0)
+
+    assert len(posts) == 1
+    assert posts[0]["title"] == "NVDA earnings beat"
+    assert posts[0]["source"] == "rss"
+    assert posts[0]["url"] == "https://reddit.com/r/stocks/comments/1/nvda"
 
 
 def test_fetch_reddit_summary_skips_taiwan_stock():

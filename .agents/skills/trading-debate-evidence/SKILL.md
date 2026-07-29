@@ -70,7 +70,8 @@ Do not rely on evidence titles alone because titles may be duplicated or ambiguo
 The fetcher may use the following sources when configured:
 
 - Yahoo Finance
-- Alpha Vantage through `ALPHA_VANTAGE_API_KEY`
+- Google News RSS (no API key required)
+- Bing News RSS (no API key required)
 - Finnhub through `FINNHUB_API_KEY`
 - FinMind through `FINMIND_TOKEN`
 - TWSE OpenAPI
@@ -79,7 +80,7 @@ The fetcher may use the following sources when configured:
 
 Yahoo Finance News is public-news coverage, not an exhaustive news wire. Use Yahoo Finance headlines as a limited news or sentiment proxy only.
 
-Alpha Vantage sentiment scores, Reddit engagement, headline counts, and similar measures are sentiment proxies. They are not market facts, verified investor positioning, or direct trading signals.
+Google News and Bing News RSS feeds provide public headline aggregation. Sentiment scores, Reddit engagement, headline counts, and similar measures are sentiment proxies. They are not market facts, verified investor positioning, or direct trading signals.
 
 Reddit evidence may contain only:
 

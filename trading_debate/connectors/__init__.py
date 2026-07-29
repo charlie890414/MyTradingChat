@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Protocol
 
 from ..models import EvidenceItem
-from .alpha_vantage import fetch_alpha_vantage
+from .bing_news import fetch_bing_news
 from .finmind import fetch_finmind
 from .finnhub import fetch_finnhub
+from .google_news import fetch_google_news
 from .reddit import fetch_reddit_summary
 from .twse import fetch_twse_mops
 from .yahoo import fetch_yahoo
@@ -22,7 +23,8 @@ class Connector(Protocol):
 
 
 CONNECTORS: dict[str, Connector] = {
-    "Alpha Vantage": fetch_alpha_vantage,
+    "Google News RSS": fetch_google_news,
+    "Bing News RSS": fetch_bing_news,
     "Finnhub": fetch_finnhub,
     "FinMind": fetch_finmind,
     "TWSE OpenAPI / MOPS": fetch_twse_mops,
@@ -32,9 +34,10 @@ CONNECTORS: dict[str, Connector] = {
 __all__ = [
     "CONNECTORS",
     "Connector",
-    "fetch_alpha_vantage",
+    "fetch_bing_news",
     "fetch_finnhub",
     "fetch_finmind",
+    "fetch_google_news",
     "fetch_reddit_summary",
     "fetch_twse_mops",
     "fetch_yahoo",
