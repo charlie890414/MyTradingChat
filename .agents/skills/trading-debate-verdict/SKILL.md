@@ -112,7 +112,7 @@ The Committee must explicitly explain:
 ## Persist verdict
 
 ```powershell
-python .\trading_debate.py record --run-id <run-id> --stage verdict --actor "Investment Committee" --content-file .\data\staging\investment-committee.md
+python .\trading_debate.py record --run-id <run-id> --stage verdict --actor "Investment Committee" --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
 ```
 
 Recommended idempotency key:

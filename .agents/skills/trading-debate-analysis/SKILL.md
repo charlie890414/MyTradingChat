@@ -170,22 +170,22 @@ The Sentiment Analyst may use Yahoo Finance headlines and configured sentiment c
 Write each returned Markdown report to:
 
 ```text
-data/staging/<actor>.md
+data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md
 ```
 
 Recommended stable filenames:
 
 ```text
-data/staging/fundamentals-analyst.md
-data/staging/technical-analyst.md
-data/staging/news-events-analyst.md
-data/staging/sentiment-analyst.md
+data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+data/staging/<YYYY-MM-DD>/<SYMBOL>/technical-analyst.md
+data/staging/<YYYY-MM-DD>/<SYMBOL>/news-events-analyst.md
+data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 ```
 
 Persist one record per analyst:
 
 ```powershell
-python .\trading_debate.py record --run-id <run-id> --stage analysis --actor "Fundamentals Analyst" --content-file .\data\staging\fundamentals-analyst.md
+python .\trading_debate.py record --run-id <run-id> --stage analysis --actor "Fundamentals Analyst" --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
 ```
 
 Verify that each `record` command succeeds before continuing.

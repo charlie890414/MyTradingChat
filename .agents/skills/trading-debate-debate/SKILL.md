@@ -69,9 +69,9 @@ For each requested round:
 ### Persist debate turns
 
 ```powershell
-python .\trading_debate.py record --run-id <run-id> --stage debate --actor "Bull Researcher" --round 1 --content-file .\data\staging\bull-round-1.md
+python .\trading_debate.py record --run-id <run-id> --stage debate --actor "Bull Researcher" --round <N> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bull-round-<N>.md
 
-python .\trading_debate.py record --run-id <run-id> --stage debate --actor "Bear Researcher" --round 1 --content-file .\data\staging\bear-round-1.md
+python .\trading_debate.py record --run-id <run-id> --stage debate --actor "Bear Researcher" --round <N> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bear-round-<N>.md
 ```
 
 Recommended idempotency key:

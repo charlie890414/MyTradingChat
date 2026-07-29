@@ -60,6 +60,8 @@ python -m trading_debate.cli init --symbol <SYMBOL> --question "<question>" --ro
 
 Capture and retain the returned `run-id`.
 
+The run-id format is `<SYMBOL>-<YYYYMMDD-HHMMSS>-<6-char-hex>`. Extract `<SYMBOL>` and convert the date portion to `<YYYY-MM-DD>` for staging paths: `data/staging/<YYYY-MM-DD>/<SYMBOL>/`.
+
 Debate rounds default to 3 and must be at least 1. The CLI rejects `--rounds` values less than 1. Do not silently increase the number of rounds.
 
 ### 3. Fetch evidence
@@ -94,15 +96,15 @@ Execute the analysis sub-skill (`trading-debate-analysis`). Spawn four independe
 
 Each receives the same JSON evidence pack. Do not provide one analyst's conclusions to another during this stage.
 
-The sub-skill covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<actor>.md`), and idempotency keys.
+The sub-skill covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md`), and idempotency keys.
 
 Persist each analyst report as it is produced:
 
 ```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/fundamentals.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor technical --content-file data/staging/technical.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor news --content-file data/staging/news.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor sentiment --content-file data/staging/sentiment.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor technical --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/technical-analyst.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor news --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/news-events-analyst.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor sentiment --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 ```
 
 Pass `--content "<markdown string>"` instead of `--content-file` for short inline payloads. The CLI requires exactly one of `--content` or `--content-file`.
@@ -123,8 +125,8 @@ The sub-skill covers rebuttal rules (name opposing claim, quote, cite evidence I
 Persist each turn immediately after the rebuttal, before the next turn begins:
 
 ```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bull --content-file data/staging/debate-round<N>-bull.md
-python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bear --content-file data/staging/debate-round<N>-bear.md
+python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bull --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bull-round-<N>.md
+python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bear --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bear-round-<N>.md
 ```
 
 `--round <N>` is required for debate turns so the Committee can reconstruct turn order.
@@ -140,7 +142,7 @@ The sub-skill covers the required output format, research rating definitions, in
 Persist the Committee report and render the final Markdown:
 
 ```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --content-file data/staging/committee.md
+python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
 python -m trading_debate.cli render --run-id <run-id> --reports reports
 ```
 
