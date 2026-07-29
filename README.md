@@ -17,6 +17,5 @@ Optional connectors are enabled only when their credentials exist in the environ
 ```powershell
 $env:ALPHA_VANTAGE_API_KEY = "..."
 $env:FINNHUB_API_KEY = "..."
-$env:FINMIND_TOKEN = "..." 
+$env:FINMIND_TOKEN = "..."
 ```
-
