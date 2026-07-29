@@ -4,7 +4,7 @@
 
 `trading_debate/` contains the Python package and CLI: `cli.py` defines commands, `finance.py` and `fetchers.py` collect evidence, `db.py` persists SQLite data, and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
 
-`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the Codex workflow instructions. Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
+`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the Codex workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
 
 ## Build, Test, and Development Commands
 
