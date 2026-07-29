@@ -10,7 +10,12 @@ from urllib.error import HTTPError, URLError
 from uuid import uuid4
 
 from .db import connect, connector_status
-from .finance import CONNECTORS, fetch_yahoo
+from .finance import (
+    CONNECTORS,
+    fetch_yahoo,
+    normalize_symbol,
+    resolve_taiwan_yahoo_symbol,
+)
 from .render import cmd_render
 from .utils import as_json, load_dotenv, utc_now
 
@@ -21,17 +26,14 @@ DEFAULT_ENV = ROOT.parent / ".env"
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    run_id = f"{args.symbol.upper()}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
+    symbol = normalize_symbol(args.symbol)
+    run_id = f"{symbol}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
     with connect(args.db) as con:
         con.execute(
             "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, 'active')",
-            (run_id, args.symbol.upper(), args.question, args.rounds, utc_now()),
+            (run_id, symbol, args.question, args.rounds, utc_now()),
         )
-    print(
-        as_json(
-            {"run_id": run_id, "symbol": args.symbol.upper(), "rounds": args.rounds}
-        )
-    )
+    print(as_json({"run_id": run_id, "symbol": symbol, "rounds": args.rounds}))
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
@@ -41,13 +43,19 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         ).fetchone()
         if not run:
             raise SystemExit(f"Unknown run id: {args.run_id}")
-        fetched = fetch_yahoo(con, args.run_id, run["symbol"], args.news_limit)
+        symbol = resolve_taiwan_yahoo_symbol(run["symbol"])
+        if symbol != run["symbol"]:
+            con.execute(
+                "UPDATE runs SET symbol = ? WHERE id = ?",
+                (symbol, args.run_id),
+            )
+        fetched = fetch_yahoo(con, args.run_id, symbol, args.news_limit)
         connector_counts: dict[str, int] = {}
         connector_errors: dict[str, str] = {}
         for name, fetcher in CONNECTORS.items():
             try:
                 connector_counts[name] = fetcher(
-                    con, args.run_id, run["symbol"], args.news_limit
+                    con, args.run_id, symbol, args.news_limit
                 )
             except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
                 connector_errors[name] = str(exc)

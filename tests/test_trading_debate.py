@@ -35,6 +35,69 @@ def test_taiwan_code(symbol, expected):
     assert td.taiwan_code(symbol) == expected
 
 
+@pytest.mark.parametrize(
+    "symbol,expected",
+    [
+        ("3037", "3037.TW"),
+        ("3037.tw", "3037.TW"),
+        ("3037.TW", "3037.TW"),
+        ("12345.TWO", "12345.TWO"),
+        ("AAPL", "AAPL"),
+        ("aapl", "AAPL"),
+    ],
+)
+def test_normalize_symbol(symbol, expected):
+    assert td.normalize_symbol(symbol) == expected
+
+
+def _make_mock_ticker(has_data: bool):
+    mock = MagicMock()
+    if has_data:
+        mock.get_info.return_value = {"longName": "Test Co", "currentPrice": 100.0}
+    else:
+        mock.get_info.return_value = {"trailingPegRatio": None}
+    mock.history.return_value = MagicMock(empty=not has_data)
+    return mock
+
+
+def test_resolve_taiwan_yahoo_symbol_keeps_us_ticker():
+    assert td.resolve_taiwan_yahoo_symbol("AAPL") == "AAPL"
+
+
+@patch("trading_debate.finance.yfinance.Ticker")
+def test_resolve_taiwan_yahoo_symbol_prefers_tw_when_data_exists(mock_ticker):
+    mock_ticker.return_value = _make_mock_ticker(has_data=True)
+    assert td.resolve_taiwan_yahoo_symbol("3037") == "3037.TW"
+
+
+@patch("trading_debate.finance.yfinance.Ticker")
+def test_resolve_taiwan_yahoo_symbol_prefers_tw_for_suffixed_symbol(mock_ticker):
+    mock_ticker.return_value = _make_mock_ticker(has_data=True)
+    assert td.resolve_taiwan_yahoo_symbol("3037.TW") == "3037.TW"
+
+
+@patch("trading_debate.finance.yfinance.Ticker")
+def test_resolve_taiwan_yahoo_symbol_falls_back_to_two(mock_ticker):
+    tw_ticker = _make_mock_ticker(has_data=False)
+    two_ticker = _make_mock_ticker(has_data=True)
+    mock_ticker.side_effect = [tw_ticker, two_ticker]
+    assert td.resolve_taiwan_yahoo_symbol("6841") == "6841.TWO"
+
+
+@patch("trading_debate.finance.yfinance.Ticker")
+def test_resolve_taiwan_yahoo_symbol_retries_two_for_suffixed_tw(mock_ticker):
+    tw_ticker = _make_mock_ticker(has_data=False)
+    two_ticker = _make_mock_ticker(has_data=True)
+    mock_ticker.side_effect = [tw_ticker, two_ticker]
+    assert td.resolve_taiwan_yahoo_symbol("6841.TW") == "6841.TWO"
+
+
+@patch("trading_debate.finance.yfinance.Ticker")
+def test_resolve_taiwan_yahoo_symbol_defaults_to_tw_when_neither_resolves(mock_ticker):
+    mock_ticker.return_value = _make_mock_ticker(has_data=False)
+    assert td.resolve_taiwan_yahoo_symbol("9999") == "9999.TW"
+
+
 def test_as_json():
     data = {"key": "value", "num": 42, "bool": True, "none": None}
     result = td.as_json(data)
@@ -162,6 +225,24 @@ def test_cmd_init_default_rounds(tmp_path: Path):
     con.close()
 
 
+def test_cmd_init_normalizes_taiwan_code(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    args = MagicMock()
+    args.db = db_path
+    args.symbol = "3037"
+    args.question = "Analyze Unimicron"
+    args.rounds = 3
+    with patch("trading_debate.utils.as_json") as mock_json:
+        mock_json.return_value = "{}"
+        td.cmd_init(args)
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    runs = con.execute("SELECT * FROM runs").fetchall()
+    assert len(runs) == 1
+    assert runs[0]["symbol"] == "3037.TW"
+    con.close()
+
+
 def test_cmd_fetch_unknown_run(tmp_path: Path):
     args = MagicMock()
     args.db = tmp_path / "test.db"
@@ -224,6 +305,71 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys):
     assert parsed["run_id"] == "run-1"
     assert parsed["price"]["close"] == 150.0
     assert parsed["technicals"]["available"] is True
+
+
+def test_cmd_fetch_updates_symbol_on_resolution(tmp_path: Path, capsys):
+    import pandas as pd
+
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "6841", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    idx = pd.DatetimeIndex([datetime(2025, 7, 28, tzinfo=UTC)])
+    mock_history = pd.DataFrame(
+        {
+            "Open": [100.0],
+            "High": [101.0],
+            "Low": [99.0],
+            "Close": [100.0],
+            "Volume": [1000.0],
+        },
+        index=idx,
+    )
+
+    tw_ticker = MagicMock()
+    tw_ticker.get_info.return_value = {"trailingPegRatio": None}
+    tw_ticker.history.return_value = pd.DataFrame()
+    two_ticker = MagicMock()
+    two_ticker.get_info.return_value = {
+        "longName": "OTC Test",
+        "currentPrice": 100.0,
+    }
+    two_ticker.history.return_value = mock_history
+    two_ticker.get_news.return_value = []
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.news_limit = 10
+
+    with patch("trading_debate.finance.yfinance.Ticker") as mock_ticker:
+        mock_ticker.side_effect = [tw_ticker, two_ticker, two_ticker]
+        with patch("trading_debate.finance.fetch_alpha_vantage", return_value=0):
+            with patch("trading_debate.finance.fetch_finnhub", return_value=0):
+                with patch("trading_debate.finance.fetch_finmind", return_value=0):
+                    with patch(
+                        "trading_debate.finance.fetch_twse_mops", return_value=0
+                    ):
+                        with patch(
+                            "trading_debate.finance.fetch_reddit_summary",
+                            return_value=0,
+                        ):
+                            td.cmd_fetch(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["run_id"] == "run-1"
+    assert parsed["price"]["close"] == 100.0
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    run = con.execute("SELECT symbol FROM runs WHERE id = ?", ("run-1",)).fetchone()
+    assert run["symbol"] == "6841.TWO"
+    con.close()
 
 
 def test_cmd_fetch_price_calculation(tmp_path: Path, capsys):
