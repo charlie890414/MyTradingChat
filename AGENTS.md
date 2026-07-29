@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`trading_debate/` contains the Python package and CLI: `cli.py` defines commands, `finance.py` and `fetchers.py` collect evidence, `db.py` persists SQLite data, and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
+`trading_debate/` contains the Python package and CLI: `cli.py` defines commands; `connectors/` collects evidence from Yahoo Finance, Alpha Vantage, Finnhub, FinMind, TWSE, and Reddit; `finance.py` is a compatibility facade that re-exports connectors and symbol utilities; `symbols.py` handles symbol normalization and Taiwan exchange resolution; `db.py` persists SQLite data; `models.py` holds shared data models; and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
 
 `tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the Codex workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
 
@@ -26,7 +26,7 @@ Follow Ruff's configured style: four-space indentation, double quotes, 88-charac
 
 ## Testing Guidelines
 
-Write pytest tests alongside related behavior in `tests/test_trading_debate.py` or a focused new `tests/test_<area>.py` file. Name tests `test_<behavior>`. Use `tmp_path` for databases and `unittest.mock.patch` for network-backed sources, so tests remain deterministic and do not require API keys. Add regression coverage for fixes and new CLI or persistence behavior.
+Write pytest tests in focused `tests/test_<area>.py` files that match the module under test (for example, `tests/test_cli.py`, `tests/test_connectors.py`, `tests/test_db.py`, `tests/test_models.py`, `tests/test_symbols.py`, `tests/test_technicals.py`, and `tests/test_utils.py`). Place shared fixtures and helpers in `tests/conftest.py`. Name tests `test_<behavior>`; the file already provides module context, so avoid redundant module prefixes. Use `tmp_path` for databases and `unittest.mock.patch` for network-backed sources, so tests remain deterministic and do not require API keys. Add regression coverage for fixes and new CLI or persistence behavior.
 
 ## Commit & Pull Request Guidelines
 

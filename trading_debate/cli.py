@@ -4,19 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from typing import Any
 from uuid import uuid4
 
-from .db import connect, connector_status
-from .finance import (
-    CONNECTORS,
-    fetch_yahoo,
-    normalize_symbol,
-    resolve_taiwan_yahoo_symbol,
-)
+from .connectors import CONNECTORS, fetch_yahoo
+from .db import connect, insert_evidence_items
+from .models import EvidenceItem, YahooFetchResult
 from .render import cmd_render
+from .symbols import normalize_symbol, resolve_taiwan_yahoo_symbol
 from .utils import as_json, load_dotenv, utc_now
 
 ROOT = Path(__file__).resolve().parent
@@ -24,13 +23,39 @@ DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
 DEFAULT_REPORTS = ROOT.parent / "reports"
 DEFAULT_ENV = ROOT.parent / ".env"
 
+_MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
+
+
+def _connector_status_item(
+    run_id: str, source: str, state: str, detail: str
+) -> EvidenceItem:
+    return EvidenceItem(
+        run_id=run_id,
+        source=source,
+        title=f"Connector {state}",
+        payload={"state": state, "detail": detail},
+    )
+
+
+def _run_connector(
+    name: str, fetcher: Any, run_id: str, symbol: str, limit: int
+) -> tuple[list[EvidenceItem], str | None]:
+    try:
+        return fetcher(run_id, symbol, limit), None
+    except Exception as exc:  # pragma: no cover - defensive
+        return [_connector_status_item(run_id, name, "error", str(exc))], str(exc)
+
 
 def cmd_init(args: argparse.Namespace) -> None:
     symbol = normalize_symbol(args.symbol)
     run_id = f"{symbol}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
     with connect(args.db) as con:
         con.execute(
-            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) VALUES (?, ?, ?, ?, ?, 'active')",
+            """
+            INSERT INTO runs(
+                id, symbol, question, debate_rounds, created_at, status
+            ) VALUES (?, ?, ?, ?, ?, 'active')
+            """,
             (run_id, symbol, args.question, args.rounds, utc_now()),
         )
     print(as_json({"run_id": run_id, "symbol": symbol, "rounds": args.rounds}))
@@ -49,27 +74,55 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 "UPDATE runs SET symbol = ? WHERE id = ?",
                 (symbol, args.run_id),
             )
-        fetched = fetch_yahoo(con, args.run_id, symbol, args.news_limit)
-        connector_counts: dict[str, int] = {}
-        connector_errors: dict[str, str] = {}
-        for name, fetcher in CONNECTORS.items():
-            try:
-                connector_counts[name] = fetcher(
-                    con, args.run_id, symbol, args.news_limit
+
+        fetched: YahooFetchResult | None = None
+        yahoo_error: str | None = None
+        try:
+            fetched = fetch_yahoo(args.run_id, symbol, args.news_limit)
+            yahoo_items = list(fetched.items)
+        except Exception as exc:
+            yahoo_error = str(exc)
+            yahoo_items = [
+                _connector_status_item(
+                    args.run_id, "Yahoo Finance", "error", yahoo_error
                 )
-            except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
-                connector_errors[name] = str(exc)
-                connector_status(con, args.run_id, name, "error", str(exc))
+            ]
+
+        connector_items: dict[str, int] = {}
+        connector_errors: dict[str, str] = {}
+        connector_results: list[EvidenceItem] = []
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(
+                    _run_connector, name, fetcher, args.run_id, symbol, args.news_limit
+                ): name
+                for name, fetcher in CONNECTORS.items()
+            }
+            for future in futures:
+                name = futures[future]
+                try:
+                    items, error = future.result()
+                    connector_results.extend(items)
+                    connector_items[name] = len(items)
+                    if error:
+                        connector_errors[name] = error
+                except Exception as exc:  # pragma: no cover - defensive
+                    connector_errors[name] = str(exc)
+
+        con.execute("DELETE FROM evidence WHERE run_id = ?", (args.run_id,))
+        insert_evidence_items(con, yahoo_items + connector_results)
+
     print(
         as_json(
             {
                 "run_id": args.run_id,
-                "fundamental_fields": len(fetched["fundamentals"]),
-                "yahoo_news_items": fetched["stored_news"],
-                "connector_items": connector_counts,
+                "fundamental_fields": (len(fetched.fundamentals) if fetched else None),
+                "yahoo_news_items": fetched.stored_news if fetched else 0,
+                "connector_items": connector_items,
                 "connector_errors": connector_errors,
-                "price": fetched["price"],
-                "technicals": fetched["technicals"],
+                "price": fetched.price if fetched else None,
+                "technicals": fetched.technicals if fetched else None,
+                "yahoo_error": yahoo_error,
             }
         )
     )
@@ -79,7 +132,10 @@ def cmd_context(args: argparse.Namespace) -> None:
     with connect(args.db) as con:
         run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
         evidence = con.execute(
-            "SELECT source, title, url, published_at, payload_json, fetched_at FROM evidence WHERE run_id = ? ORDER BY id",
+            """
+            SELECT source, title, url, published_at, payload_json, fetched_at
+            FROM evidence WHERE run_id = ? ORDER BY id
+            """,
             (args.run_id,),
         ).fetchall()
     if not run:
@@ -111,7 +167,11 @@ def cmd_record(args: argparse.Namespace) -> None:
         ).fetchone():
             raise SystemExit(f"Unknown run id: {args.run_id}")
         con.execute(
-            "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO contributions(
+                run_id, stage, actor, round_no, content, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
             (
                 args.run_id,
                 args.stage,
@@ -137,10 +197,14 @@ def cmd_search(args: argparse.Namespace) -> None:
     term = f"%{args.query}%"
     with connect(args.db) as con:
         rows = con.execute(
-            "SELECT id, symbol, question, created_at, status, report_path FROM runs "
-            "WHERE symbol LIKE ? OR question LIKE ? OR id IN "
-            "(SELECT run_id FROM contributions WHERE content LIKE ?) "
-            "ORDER BY created_at DESC LIMIT ?",
+            """
+            SELECT id, symbol, question, created_at, status, report_path
+            FROM runs
+            WHERE symbol LIKE ? OR question LIKE ? OR id IN (
+                SELECT run_id FROM contributions WHERE content LIKE ?
+            )
+            ORDER BY created_at DESC LIMIT ?
+            """,
             (term, term, term, args.limit),
         ).fetchall()
     print(as_json([dict(row) for row in rows]))
@@ -150,18 +214,22 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--db", type=Path, default=DEFAULT_DB)
     sub = p.add_subparsers(required=True)
+
     init = sub.add_parser("init")
     init.add_argument("--symbol", required=True)
     init.add_argument("--question", required=True)
     init.add_argument("--rounds", type=int, default=3)
     init.set_defaults(func=cmd_init)
+
     fetch = sub.add_parser("fetch")
     fetch.add_argument("--run-id", required=True)
     fetch.add_argument("--news-limit", type=int, default=10)
     fetch.set_defaults(func=cmd_fetch)
+
     context = sub.add_parser("context")
     context.add_argument("--run-id", required=True)
     context.set_defaults(func=cmd_context)
+
     record = sub.add_parser("record")
     record.add_argument("--run-id", required=True)
     record.add_argument(
@@ -173,10 +241,12 @@ def parser() -> argparse.ArgumentParser:
     source.add_argument("--content")
     source.add_argument("--content-file")
     record.set_defaults(func=cmd_record)
+
     render = sub.add_parser("render")
     render.add_argument("--run-id", required=True)
     render.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)
     render.set_defaults(func=cmd_render)
+
     search = sub.add_parser("search")
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=10)
