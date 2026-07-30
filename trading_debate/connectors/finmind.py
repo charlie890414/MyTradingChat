@@ -13,7 +13,7 @@ _DATASETS = {
     "TaiwanStockNews": {
         "source": "FinMind TaiwanStockNews",
         "title": "Taiwan stock news",
-        "days": 365,
+        "days": 0,
         "single_day": True,
     },
     "TaiwanStockMonthRevenue": {
