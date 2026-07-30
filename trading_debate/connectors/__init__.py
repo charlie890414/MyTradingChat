@@ -9,7 +9,7 @@ from .bing_news import fetch_bing_news
 from .finmind import fetch_finmind
 from .finnhub import fetch_finnhub
 from .google_news import fetch_google_news
-from .reddit import fetch_reddit_summary
+from .sec import fetch_sec
 from .twse import fetch_twse_mops
 from .yahoo import fetch_yahoo
 
@@ -26,9 +26,9 @@ CONNECTORS: dict[str, Connector] = {
     "Google News RSS": fetch_google_news,
     "Bing News RSS": fetch_bing_news,
     "Finnhub": fetch_finnhub,
+    "SEC EDGAR": fetch_sec,
     "FinMind": fetch_finmind,
     "TWSE OpenAPI / MOPS": fetch_twse_mops,
-    "Reddit": fetch_reddit_summary,
 }
 
 __all__ = [
@@ -38,7 +38,7 @@ __all__ = [
     "fetch_finnhub",
     "fetch_finmind",
     "fetch_google_news",
-    "fetch_reddit_summary",
+    "fetch_sec",
     "fetch_twse_mops",
     "fetch_yahoo",
 ]

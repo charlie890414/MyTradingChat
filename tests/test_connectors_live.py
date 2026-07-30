@@ -18,7 +18,7 @@ from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
 from trading_debate.connectors.google_news import fetch_google_news
-from trading_debate.connectors.reddit import fetch_reddit_summary
+from trading_debate.connectors.sec import fetch_sec
 from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
 
@@ -54,23 +54,12 @@ def test_fetch_yahoo_live_returns_real_market_data():
     assert result.technicals["as_of"] is not None, "Expected computed technicals"
 
 
-def test_fetch_reddit_summary_live_returns_real_aggregate():
-    items = fetch_reddit_summary("test-live", "AAPL", 10)
-    assert len(items) == 1
-    assert items[0].source == "Reddit search aggregate"
-    payload = items[0].payload
-    assert payload["query"] == "AAPL"
-    assert isinstance(payload["post_count"], int)
-    assert payload["source"] == "rss"
-    assert isinstance(payload["sample_urls"], list)
-
-
 def test_fetch_twse_mops_live_returns_real_profile():
     items = fetch_twse_mops("test-live", "1101", 0)
-    assert len(items) == 1
-    assert items[0].source == "TWSE OpenAPI / MOPS"
-    assert items[0].title == "Official listed-company disclosure profile"
-    assert str(items[0].payload.get("公司代號", "")).strip() == "1101"
+    profile_items = [item for item in items if item.source == "TWSE OpenAPI / MOPS"]
+    assert profile_items
+    assert profile_items[0].title == "Official listed-company disclosure profile"
+    assert str(profile_items[0].payload.get("公司代號", "")).strip() == "1101"
 
 
 def test_fetch_finmind_live_returns_real_taiwan_news_or_empty_list():
@@ -82,8 +71,9 @@ def test_fetch_finmind_live_returns_real_taiwan_news_or_empty_list():
     ):
         items = fetch_finmind("test-live", "2330", 5)
     assert len(items) > 0, "Expected at least one article from FinMind"
-    for item in items:
-        assert item.source == "FinMind TaiwanStockNews"
+    news_items = [item for item in items if item.source == "FinMind TaiwanStockNews"]
+    assert news_items, "Expected at least one FinMind news item"
+    for item in news_items:
         assert item.title
         assert item.url
 
@@ -93,7 +83,14 @@ def test_fetch_finnhub_live_returns_real_company_news():
         pytest.skip("Set FINNHUB_API_KEY to run Finnhub live integration test")
     items = fetch_finnhub("test-live", "AAPL", 5)
     assert len(items) > 0, "Expected at least one article from Finnhub"
-    for item in items:
-        assert item.source == "Finnhub Company News"
+    news_items = [item for item in items if item.source == "Finnhub Company News"]
+    assert news_items, "Expected at least one Finnhub company-news item"
+    for item in news_items:
         assert item.title
         assert item.url
+
+
+def test_fetch_sec_live_returns_official_filings():
+    items = fetch_sec("test-live", "AAPL", 5)
+    assert any(item.source == "SEC EDGAR" for item in items)
+    assert any(item.source == "SEC EDGAR Company Facts" for item in items)

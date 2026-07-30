@@ -1,53 +1,161 @@
-"""TWSE OpenAPI / MOPS official disclosure connector."""
+"""TWSE/TPEX OpenAPI and MOPS official disclosure connector."""
 
 from __future__ import annotations
 
 import ssl
+from collections.abc import Iterable
+from typing import Any
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
 from ..utils import request_json
+
+_UNVERIFIED_CTX = ssl._create_unverified_context()
+
+_PROFILE_ENDPOINTS = [
+    (
+        "TWSE listed-company profile",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+    ),
+    (
+        "TWSE listed-company profile",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
+    ),
+    (
+        "TPEX company profile",
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+    ),
+]
+
+_DISCLOSURE_ENDPOINTS = [
+    (
+        "MOPS material information",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
+    ),
+    (
+        "TPEX material information",
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O",
+    ),
+]
+
+_MONTHLY_REVENUE_ENDPOINTS = [
+    (
+        "TWSE monthly revenue",
+        "https://openapi.twse.com.tw/v1/opendata/t187ap05_L",
+    ),
+    (
+        "TPEX monthly revenue",
+        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O",
+    ),
+]
+
+
+def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
+    return EvidenceItem(
+        run_id=run_id,
+        source="TWSE/TPEX OpenAPI / MOPS",
+        title=f"Connector {state}",
+        payload={"state": state, "detail": detail},
+    )
+
+
+def _company_code(row: dict[str, Any]) -> str:
+    for key in ("公司代號", "公司代號(股票代號)", "股票代號", "出表公司"):
+        value = str(row.get(key, "")).strip()
+        if value:
+            return value.split()[0]
+    return ""
+
+
+def _matching_rows(
+    records: Iterable[dict[str, Any]], code: str
+) -> list[dict[str, Any]]:
+    return [row for row in records if _company_code(row) == code]
+
+
+def _fetch_endpoint(url: str) -> list[dict[str, Any]]:
+    records = request_json(url, ssl_context=_UNVERIFIED_CTX)
+    return records if isinstance(records, list) else []
+
+
+def _items_from_endpoint_group(
+    run_id: str,
+    code: str,
+    endpoints: list[tuple[str, str]],
+    source: str,
+    title_prefix: str,
+    limit: int,
+) -> list[EvidenceItem]:
+    items: list[EvidenceItem] = []
+    errors: list[str] = []
+    for label, url in endpoints:
+        try:
+            rows = _matching_rows(_fetch_endpoint(url), code)
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+            continue
+        for row in rows[-limit:] if limit else rows:
+            title = (
+                row.get("公司名稱")
+                or row.get("公司簡稱")
+                or row.get("公司代號")
+                or code
+            )
+            evidence_title = (
+                title_prefix
+                if title_prefix == "Official listed-company disclosure profile"
+                else f"{title_prefix}: {title}"
+            )
+            date = row.get("出表日期") or row.get("年月") or row.get("資料年月")
+            items.append(
+                EvidenceItem(
+                    run_id=run_id,
+                    source=source,
+                    title=evidence_title,
+                    payload={"endpoint": label, **row},
+                    url=url,
+                    published_at=str(date) if date else None,
+                )
+            )
+    if items:
+        return items
+    if errors:
+        return [_status(run_id, "error", "; ".join(errors))]
+    return [_status(run_id, "empty", f"No {title_prefix.lower()} found for {code}.")]
 
 
 def fetch_twse_mops(run_id: str, symbol: str, limit: int = 0) -> list[EvidenceItem]:
     code = taiwan_code(symbol)
     if not code:
         detail = "Official disclosures are only queried for Taiwan ticker codes."
-        return [
-            EvidenceItem(
-                run_id=run_id,
-                source="TWSE OpenAPI / MOPS",
-                title="Connector skipped",
-                payload={"state": "skipped", "detail": detail},
-            )
-        ]
-    _unverified_ctx = ssl._create_unverified_context()
-    records = request_json(
-        "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
-        ssl_context=_unverified_ctx,
-    )
-    profile = next(
-        (item for item in records if str(item.get("公司代號", "")).strip() == code),
-        None,
-    )
-    if not profile:
-        return [
-            EvidenceItem(
-                run_id=run_id,
-                source="TWSE OpenAPI / MOPS",
-                title="Connector empty",
-                payload={
-                    "state": "empty",
-                    "detail": f"No listed-company profile found for {code}.",
-                },
-            )
-        ]
-    return [
-        EvidenceItem(
-            run_id=run_id,
-            source="TWSE OpenAPI / MOPS",
-            title="Official listed-company disclosure profile",
-            payload=profile,
-            url="https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
+        return [_status(run_id, "skipped", detail)]
+
+    cap = limit or 10
+    items: list[EvidenceItem] = []
+    for endpoint_group, source, title_prefix in (
+        (
+            _PROFILE_ENDPOINTS,
+            "TWSE OpenAPI / MOPS",
+            "Official listed-company disclosure profile",
+        ),
+        (
+            _DISCLOSURE_ENDPOINTS,
+            "TWSE/TPEX Material Information",
+            "Material information",
+        ),
+        (_MONTHLY_REVENUE_ENDPOINTS, "TWSE/TPEX Monthly Revenue", "Monthly revenue"),
+    ):
+        group_items = _items_from_endpoint_group(
+            run_id, code, endpoint_group, source, title_prefix, cap
         )
-    ]
+        # Keep positive evidence granular, but avoid flooding reports with one empty
+        # status for each unavailable official endpoint group.
+        if group_items and group_items[0].title.startswith("Connector"):
+            if not items:
+                items.extend(group_items)
+            continue
+        items.extend(group_items)
+
+    if not items:
+        return [_status(run_id, "empty", f"No TWSE/TPEX records found for {code}.")]
+    return items
