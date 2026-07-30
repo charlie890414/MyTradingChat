@@ -200,6 +200,22 @@ def test_fetch_finmind_returns_skipped_for_non_taiwan_symbol():
     assert items[0].title == "Connector skipped"
 
 
+@patch("trading_debate.connectors.finmind.os.getenv")
+@patch("trading_debate.connectors.finmind.request_json")
+def test_fetch_finmind_uses_correct_institutional_dataset_name(
+    mock_request, mock_getenv
+):
+    mock_getenv.return_value = "fake-token"
+    mock_request.return_value = {"status": 200, "data": []}
+    fetch_finmind("run-1", "2330.TW", 10)
+    datasets = {
+        call.args[1]["dataset"]
+        for call in mock_request.call_args_list
+        if len(call.args) >= 2
+    }
+    assert "TaiwanStockInstitutionalInvestorsBuySell" in datasets
+
+
 @patch("trading_debate.connectors.twse.request_json")
 def test_fetch_twse_mops_returns_profile_for_taiwan_code(mock_request):
     mock_request.side_effect = [

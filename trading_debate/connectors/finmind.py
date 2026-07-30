@@ -35,8 +35,8 @@ _DATASETS = {
         "title": "Cash flow statement",
         "days": 1460,
     },
-    "InstitutionalInvestorsBuySell": {
-        "source": "FinMind InstitutionalInvestorsBuySell",
+    "TaiwanStockInstitutionalInvestorsBuySell": {
+        "source": "FinMind TaiwanStockInstitutionalInvestorsBuySell",
         "title": "Institutional investors buy/sell",
         "days": 90,
     },
