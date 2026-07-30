@@ -23,7 +23,9 @@ def _request_finnhub(endpoint: str, params: dict[str, Any]) -> Any:
     return request_json(f"https://finnhub.io/api/v1/{endpoint}", params)
 
 
-def fetch_finnhub(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
+def fetch_finnhub(
+    run_id: str, symbol: str, limit: int, *, company_name: str | None = None
+) -> list[EvidenceItem]:
     if taiwan_code(symbol):
         return [_status(run_id, "skipped", "Finnhub only supports US tickers here.")]
     key = os.getenv("FINNHUB_API_KEY")

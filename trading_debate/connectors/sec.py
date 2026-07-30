@@ -128,7 +128,9 @@ def _financial_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
-def fetch_sec(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
+def fetch_sec(
+    run_id: str, symbol: str, limit: int, *, company_name: str | None = None
+) -> list[EvidenceItem]:
     if taiwan_code(symbol):
         return [_status(run_id, "skipped", "SEC EDGAR only supports US tickers.")]
 

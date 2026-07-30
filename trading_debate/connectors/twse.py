@@ -124,7 +124,9 @@ def _items_from_endpoint_group(
     return [_status(run_id, "empty", f"No {title_prefix.lower()} found for {code}.")]
 
 
-def fetch_twse_mops(run_id: str, symbol: str, limit: int = 0) -> list[EvidenceItem]:
+def fetch_twse_mops(
+    run_id: str, symbol: str, limit: int = 0, *, company_name: str | None = None
+) -> list[EvidenceItem]:
     code = taiwan_code(symbol)
     if not code:
         detail = "Official disclosures are only queried for Taiwan ticker codes."

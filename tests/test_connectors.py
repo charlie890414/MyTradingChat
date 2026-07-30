@@ -339,3 +339,30 @@ def test_fetch_sec_skips_taiwan_stock():
     items = fetch_sec("run-1", "2330.TW", 10)
     assert len(items) == 1
     assert items[0].title == "Connector skipped"
+
+
+def test_fetch_sec_accepts_company_name():
+    items = fetch_sec("run-1", "2330.TW", 10, company_name="台積電")
+    assert len(items) == 1
+    assert items[0].title == "Connector skipped"
+
+
+def test_fetch_finnhub_accepts_company_name():
+    with patch("trading_debate.connectors.finnhub.os.getenv", return_value=None):
+        items = fetch_finnhub("run-1", "AAPL", 10, company_name="Apple")
+    assert len(items) == 1
+    assert items[0].title == "Connector skipped"
+
+
+@patch("trading_debate.connectors.finmind.request_json")
+@patch("trading_debate.connectors.finmind.os.getenv", return_value="fake-token")
+def test_fetch_finmind_accepts_company_name(mock_getenv, mock_request):
+    mock_request.return_value = {"status": 200, "data": []}
+    items = fetch_finmind("run-1", "2330.TW", 10, company_name="台積電")
+    assert not any(item.title == "Connector error" for item in items)
+
+
+@patch("trading_debate.connectors.twse.request_json", return_value=[])
+def test_fetch_twse_mops_accepts_company_name(mock_request):
+    items = fetch_twse_mops("run-1", "2330.TW", 0, company_name="台積電")
+    assert not any(item.title == "Connector error" for item in items)

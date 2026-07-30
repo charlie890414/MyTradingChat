@@ -74,7 +74,9 @@ def _fetch_dataset(
     )
 
 
-def fetch_finmind(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
+def fetch_finmind(
+    run_id: str, symbol: str, limit: int, *, company_name: str | None = None
+) -> list[EvidenceItem]:
     code = taiwan_code(symbol)
     if not code:
         detail = "FinMind TaiwanStockNews is only queried for Taiwan ticker codes."
