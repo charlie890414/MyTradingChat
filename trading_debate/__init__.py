@@ -20,7 +20,12 @@ from .db import (
     insert_evidence_items,
 )
 from .models import EvidenceItem, YahooFetchResult
-from .symbols import normalize_symbol, resolve_taiwan_yahoo_symbol, taiwan_code
+from .symbols import (
+    company_search_name,
+    normalize_symbol,
+    resolve_taiwan_yahoo_symbol,
+    taiwan_code,
+)
 from .utils import (
     RequestError,
     as_json,
@@ -42,6 +47,7 @@ __all__ = [
     "cmd_record",
     "cmd_render",
     "cmd_search",
+    "company_search_name",
     "compute_technicals",
     "connect",
     "connector_status",

@@ -49,6 +49,29 @@ def _ticker_has_data(ticker: Any) -> bool:
     return history is not None and not history.empty
 
 
+def company_search_name(
+    symbol: str,
+    info: dict[str, Any] | None = None,
+    *,
+    chinese_name: str | None = None,
+) -> str:
+    """Return a human-readable name to use when searching news sources.
+
+    For Taiwan numeric codes this prefers a Chinese name when provided, then
+    the company long/short name from Yahoo Finance info (e.g.
+    ``3037.TW`` -> ``"Unimicron Technology Corp."``), falling back to the
+    original symbol. US-style tickers are returned unchanged so searches stay
+    ticker-centric.
+    """
+    if not taiwan_code(symbol):
+        return symbol.upper()
+    if chinese_name:
+        return chinese_name
+    if info:
+        return info.get("longName") or info.get("shortName") or symbol.upper()
+    return symbol.upper()
+
+
 def resolve_taiwan_yahoo_symbol(symbol: str) -> str:
     """Resolve a Taiwan numeric code to the Yahoo Finance suffix that has data.
 

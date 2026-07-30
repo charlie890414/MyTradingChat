@@ -449,6 +449,57 @@ def test_yahoo_history_does_not_use_period_arg(
     assert kwargs.get("period") is None
 
 
+def test_cmd_fetch_uses_chinese_company_name_for_taiwan_stock(
+    tmp_path: Path, capsys, empty_connectors
+):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "3037.TW", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    history = make_history(5)
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {
+        "longName": "Unimicron Technology Corp.",
+        "currentPrice": 716.0,
+    }
+    mock_ticker.history.return_value = history
+    mock_ticker.get_news.return_value = []
+
+    captured_company_name = None
+
+    def capture_connector(run_id, symbol, limit, *, company_name=None):
+        nonlocal captured_company_name
+        captured_company_name = company_name
+        return []
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.news_limit = 10
+
+    with patch("trading_debate.cli.fetch_taiwan_company_name", return_value="欣興電子"):
+        with patch(
+            "trading_debate.connectors.yahoo.yfinance.Ticker", return_value=mock_ticker
+        ):
+            with patch.dict(
+                "trading_debate.cli.CONNECTORS",
+                {"Google News RSS": capture_connector},
+                clear=True,
+            ):
+                td.cmd_fetch(args)
+
+    assert captured_company_name == "欣興電子"
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["run_id"] == "run-1"
+
+
 def test_cmd_fetch_records_connector_errors(tmp_path: Path, capsys):
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
@@ -460,7 +511,7 @@ def test_cmd_fetch_records_connector_errors(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    def failing_connector(run_id, symbol, limit):
+    def failing_connector(run_id, symbol, limit, *, company_name=None):
         raise RuntimeError("provider down")
 
     result = make_yahoo_result(

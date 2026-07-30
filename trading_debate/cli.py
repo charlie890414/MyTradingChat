@@ -21,7 +21,8 @@ from .db import (
 )
 from .models import EvidenceItem, YahooFetchResult
 from .render import cmd_render
-from .symbols import normalize_symbol, resolve_taiwan_yahoo_symbol
+from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo_symbol
+from .taiwan_names import fetch_taiwan_company_name
 from .utils import as_json, load_dotenv, utc_now
 from .web import serve
 
@@ -45,10 +46,16 @@ def _connector_status_item(
 
 
 def _run_connector(
-    name: str, fetcher: Any, run_id: str, symbol: str, limit: int
+    name: str,
+    fetcher: Any,
+    run_id: str,
+    symbol: str,
+    limit: int,
+    *,
+    company_name: str | None = None,
 ) -> tuple[list[EvidenceItem], str | None]:
     try:
-        return fetcher(run_id, symbol, limit), None
+        return fetcher(run_id, symbol, limit, company_name=company_name), None
     except Exception as exc:  # pragma: no cover - defensive
         return [_connector_status_item(run_id, name, "error", str(exc))], str(exc)
 
@@ -95,13 +102,26 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 )
             ]
 
+        chinese_name = fetch_taiwan_company_name(symbol)
+        company_name = (
+            company_search_name(symbol, fetched.fundamentals, chinese_name=chinese_name)
+            if fetched
+            else None
+        )
+
         connector_items: dict[str, int] = {}
         connector_errors: dict[str, str] = {}
         connector_results: list[EvidenceItem] = []
         with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
             futures = {
                 executor.submit(
-                    _run_connector, name, fetcher, args.run_id, symbol, args.news_limit
+                    _run_connector,
+                    name,
+                    fetcher,
+                    args.run_id,
+                    symbol,
+                    args.news_limit,
+                    company_name=company_name,
                 ): name
                 for name, fetcher in CONNECTORS.items()
             }

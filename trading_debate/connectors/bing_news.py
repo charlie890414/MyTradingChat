@@ -23,8 +23,12 @@ def _parse_rss_date(raw: str | None) -> str | None:
     return parsed.replace(tzinfo=UTC).isoformat()
 
 
-def fetch_bing_news(run_id: str, symbol: str, limit: int) -> list[EvidenceItem]:
-    query = quote(f"{symbol}{_QUERY}")
+def fetch_bing_news(
+    run_id: str, symbol: str, limit: int, *, company_name: str | None = None
+) -> list[EvidenceItem]:
+    search_term = company_name if company_name else symbol
+    suffix = "" if company_name else _QUERY
+    query = quote(f"{search_term}{suffix}")
     feed = feedparser.parse(
         _URL.format(q=query), agent="MyTradingChat/0.1", request_headers={}
     )

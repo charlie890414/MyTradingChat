@@ -78,3 +78,29 @@ def test_resolve_taiwan_yahoo_symbol_defaults_to_tw_when_neither_resolves(
 ):
     mock_ticker.return_value = make_mock_ticker(has_data=False)
     assert td.resolve_taiwan_yahoo_symbol("9999") == "9999.TW"
+
+
+@pytest.mark.parametrize(
+    "symbol,info,chinese_name,expected",
+    [
+        ("AAPL", None, None, "AAPL"),
+        ("aapl", {"longName": "Apple Inc."}, None, "AAPL"),
+        ("3037.TW", None, None, "3037.TW"),
+        (
+            "3037.TW",
+            {"longName": "Unimicron Technology Corp."},
+            None,
+            "Unimicron Technology Corp.",
+        ),
+        ("3037.TW", {"shortName": "UNIMICRON"}, None, "UNIMICRON"),
+        (
+            "3037.TW",
+            {"shortName": "UNIMICRON", "longName": "Unimicron Technology Corp."},
+            None,
+            "Unimicron Technology Corp.",
+        ),
+        ("3037.TW", {"longName": "Unimicron Technology Corp."}, "欣興電子", "欣興電子"),
+    ],
+)
+def test_company_search_name(symbol, info, chinese_name, expected):
+    assert td.company_search_name(symbol, info, chinese_name=chinese_name) == expected

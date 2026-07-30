@@ -113,3 +113,12 @@ def empty_connectors():
     """Run cmd_fetch with an empty CONNECTORS dict to skip external APIs."""
     with patch("trading_debate.cli.CONNECTORS", {}) as mock_connectors:
         yield mock_connectors
+
+
+@pytest.fixture(autouse=True)
+def no_taiwan_company_network():
+    """Prevent tests from hitting TWSE/TPEX APIs for Chinese company names."""
+    with patch(
+        "trading_debate.cli.fetch_taiwan_company_name", return_value=None
+    ) as mock_name:
+        yield mock_name

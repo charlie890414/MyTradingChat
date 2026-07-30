@@ -105,6 +105,31 @@ def test_fetch_bing_news_returns_items(mock_feedparser):
 
 
 @patch("trading_debate.connectors.google_news.feedparser")
+def test_fetch_google_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {
+                    "title": "Unimicron expands capacity",
+                    "link": "https://example.com/1",
+                    "published": "Mon, 28 Jul 2026 10:00:00 GMT",
+                    "summary": "",
+                    "source": {"title": "Reuters", "href": "https://reuters.com"},
+                }
+            ]
+        },
+    )()
+    items = fetch_google_news("run-1", "3037.TW", 10, company_name="欣興電子")
+    assert len(items) == 1
+    called_url = mock_feedparser.parse.call_args[0][0]
+    assert "%E6%AC%A3%E8%88%88" in called_url  # URL-encoded 欣興
+    assert "3037.TW" not in called_url
+    assert "stock" not in called_url
+
+
+@patch("trading_debate.connectors.google_news.feedparser")
 def test_fetch_google_news_respects_limit(mock_feedparser):
     mock_feedparser.parse.return_value = type(
         "Feed",
@@ -118,6 +143,30 @@ def test_fetch_google_news_respects_limit(mock_feedparser):
     )()
     items = fetch_google_news("run-1", "AAPL", 5)
     assert len(items) == 5
+
+
+@patch("trading_debate.connectors.bing_news.feedparser")
+def test_fetch_bing_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {
+                    "title": "Unimicron raises guidance",
+                    "link": "https://example.com/1",
+                    "published": "Mon, 28 Jul 2026 14:00:00 GMT",
+                    "summary": "",
+                }
+            ]
+        },
+    )()
+    items = fetch_bing_news("run-1", "3037.TW", 10, company_name="欣興電子")
+    assert len(items) == 1
+    called_url = mock_feedparser.parse.call_args[0][0]
+    assert "%E6%AC%A3%E8%88%88" in called_url  # URL-encoded 欣興
+    assert "3037.TW" not in called_url
+    assert "stock" not in called_url
 
 
 @patch("trading_debate.connectors.bing_news.feedparser")

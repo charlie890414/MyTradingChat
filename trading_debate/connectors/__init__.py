@@ -18,7 +18,12 @@ class Connector(Protocol):
     """A source that returns evidence items for a run."""
 
     def __call__(
-        self, run_id: str, symbol: str, news_limit: int
+        self,
+        run_id: str,
+        symbol: str,
+        news_limit: int,
+        *,
+        company_name: str | None = None,
     ) -> list[EvidenceItem]: ...
 
 
