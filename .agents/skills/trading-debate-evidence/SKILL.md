@@ -76,19 +76,10 @@ The fetcher may use the following sources when configured:
 - FinMind through `FINMIND_TOKEN`
 - TWSE OpenAPI
 - MOPS
-- Reddit OAuth through `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET`
 
 Yahoo Finance News is public-news coverage, not an exhaustive news wire. Use Yahoo Finance headlines as a limited news or sentiment proxy only.
 
-Google News and Bing News RSS feeds provide public headline aggregation. Sentiment scores, Reddit engagement, headline counts, and similar measures are sentiment proxies. They are not market facts, verified investor positioning, or direct trading signals.
-
-Reddit evidence may contain only:
-
-- Run-level aggregate statistics
-- URLs
-- Source metadata
-
-Do not request, persist, quote, or train on Reddit post bodies.
+Google News and Bing News RSS feeds provide public headline aggregation. Sentiment scores, headline counts, and similar measures are sentiment proxies. They are not market facts, verified investor positioning, or direct trading signals.
 
 ## Connector status
 

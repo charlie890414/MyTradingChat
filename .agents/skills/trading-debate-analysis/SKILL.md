@@ -5,7 +5,7 @@ description: Four-analyst stage for the trading-debate skill. Spawns Fundamental
 
 # Analyst Stage
 
-Spawn four independent Codex subagents in parallel:
+Spawn four independent subagents in parallel:
 
 1. `Fundamentals Analyst`
 2. `Technical Analyst`

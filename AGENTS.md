@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-`trading_debate/` contains the Python package and CLI: `cli.py` defines commands; `connectors/` collects evidence from Yahoo Finance, Google News RSS, Bing News RSS, Finnhub, FinMind, TWSE, and Reddit; `finance.py` is a compatibility facade that re-exports connectors and symbol utilities; `symbols.py` handles symbol normalization and Taiwan exchange resolution; `db.py` persists SQLite data; `models.py` holds shared data models; and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
+`trading_debate/` contains the Python package and CLI: `cli.py` defines commands; `connectors/` collects evidence from Yahoo Finance, Google News RSS, Bing News RSS, Finnhub, FinMind, SEC EDGAR, and TWSE; `finance.py` is a compatibility facade that re-exports connectors and symbol utilities; `symbols.py` handles symbol normalization and Taiwan exchange resolution; `db.py` persists SQLite data; `models.py` holds shared data models; and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
 
-`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the Codex workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
+`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the agent workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
 
 ## Build, Test, and Development Commands
 

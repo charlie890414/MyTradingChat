@@ -1,4 +1,4 @@
-"""Local evidence, history, and report tools for the Codex trading-debate skill."""
+"""Local evidence, history, and report tools for the agent trading-debate workflow."""
 
 from __future__ import annotations
 
