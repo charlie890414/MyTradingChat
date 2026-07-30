@@ -18,3 +18,19 @@ Optional connectors are enabled only when their credentials exist in the environ
 $env:FINNHUB_API_KEY = "..."
 $env:FINMIND_TOKEN = "..."
 ```
+
+## Local historical research UI
+
+Start the local UI after creating research runs:
+
+```powershell
+trading-debate serve
+```
+
+Open `http://127.0.0.1:8765` to search and filter prior research, inspect its
+evidence, analyst reports, debate history, and rendered Markdown report. Every
+view labels stored research as historical context and shows its recorded dates.
+
+To delete a run, open its detail page and enter the exact research ID to confirm.
+This permanently removes its SQLite run data, evidence, contributions, and its
+report directory when available.

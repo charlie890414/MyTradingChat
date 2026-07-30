@@ -12,11 +12,18 @@ from typing import Any
 from uuid import uuid4
 
 from .connectors import CONNECTORS, fetch_yahoo
-from .db import connect, insert_evidence_items
+from .db import (
+    RATINGS,
+    connect,
+    evidence_reference,
+    insert_evidence_items,
+    update_run_verdict,
+)
 from .models import EvidenceItem, YahooFetchResult
 from .render import cmd_render
 from .symbols import normalize_symbol, resolve_taiwan_yahoo_symbol
 from .utils import as_json, load_dotenv, utc_now
+from .web import serve
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
@@ -109,8 +116,12 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 except Exception as exc:  # pragma: no cover - defensive
                     connector_errors[name] = str(exc)
 
-        con.execute("DELETE FROM evidence WHERE run_id = ?", (args.run_id,))
         insert_evidence_items(con, yahoo_items + connector_results)
+        if yahoo_error:
+            con.execute(
+                "UPDATE runs SET status = 'incomplete' WHERE id = ?",
+                (args.run_id,),
+            )
 
     print(
         as_json(
@@ -133,7 +144,8 @@ def cmd_context(args: argparse.Namespace) -> None:
         run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
         evidence = con.execute(
             """
-            SELECT source, title, url, published_at, payload_json, fetched_at
+            SELECT id, source, title, url, published_at, payload_json, fetched_at,
+                   dedup_key
             FROM evidence WHERE run_id = ? ORDER BY id
             """,
             (args.run_id,),
@@ -144,13 +156,81 @@ def cmd_context(args: argparse.Namespace) -> None:
         as_json(
             {
                 "run": dict(run),
+                "evidence_fetched_at": max(
+                    (row["fetched_at"] for row in evidence), default=None
+                ),
                 "evidence": [
-                    {**dict(row), "payload": json.loads(row["payload_json"])}
+                    {
+                        **dict(row),
+                        "evidence_id": evidence_reference(row["id"]),
+                        "payload": json.loads(row["payload_json"]),
+                    }
                     for row in evidence
+                ],
+                "connector_status": [
+                    {
+                        "source": row["source"],
+                        "state": json.loads(row["payload_json"]).get("state"),
+                        "detail": json.loads(row["payload_json"]).get("detail"),
+                    }
+                    for row in evidence
+                    if row["title"].startswith("Connector ")
                 ],
             }
         )
     )
+
+
+def _validate_record(con: Any, args: argparse.Namespace) -> None:
+    run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
+    if not run:
+        raise SystemExit(f"Unknown run id: {args.run_id}")
+    if run["status"] in {"completed", "failed"}:
+        raise SystemExit(f"Cannot record a {run['status']} run")
+    if args.stage == "debate":
+        if args.round is None or args.round < 1 or args.round > run["debate_rounds"]:
+            raise SystemExit("Debate records require a valid --round")
+        actor = args.actor.lower()
+        if actor not in {"bull", "bear"}:
+            raise SystemExit("Debate actor must be bull or bear")
+        turns = con.execute(
+            "SELECT actor FROM contributions WHERE run_id = ? AND stage = 'debate' "
+            "AND round_no = ? ORDER BY id",
+            (args.run_id, args.round),
+        ).fetchall()
+        existing = [row["actor"].lower() for row in turns]
+        expected_actor = (
+            "bull" if not existing else "bear" if existing == ["bull"] else None
+        )
+        if actor != expected_actor:
+            raise SystemExit("Each debate round must record bull first, then bear")
+    elif args.round is not None:
+        raise SystemExit("--round is only valid for debate records")
+    elif args.stage == "verdict":
+        analyses = {
+            row["actor"].lower()
+            for row in con.execute(
+                "SELECT actor FROM contributions "
+                "WHERE run_id = ? AND stage = 'analysis'",
+                (args.run_id,),
+            ).fetchall()
+        }
+        required_analyses = {"fundamentals", "technical", "news", "sentiment"}
+        if not required_analyses.issubset(analyses):
+            raise SystemExit("Verdict requires all four analyst reports")
+        debate_turns = con.execute(
+            "SELECT actor, round_no FROM contributions WHERE run_id = ? "
+            "AND stage = 'debate' ORDER BY round_no, id",
+            (args.run_id,),
+        ).fetchall()
+        expected = [
+            (actor, round_no)
+            for round_no in range(1, run["debate_rounds"] + 1)
+            for actor in ("bull", "bear")
+        ]
+        actual = [(row["actor"].lower(), row["round_no"]) for row in debate_turns]
+        if actual != expected:
+            raise SystemExit("Verdict requires all bull/bear debate turns in order")
 
 
 def cmd_record(args: argparse.Namespace) -> None:
@@ -162,10 +242,17 @@ def cmd_record(args: argparse.Namespace) -> None:
     if not content or not content.strip():
         raise SystemExit("Provide non-empty --content or --content-file")
     with connect(args.db) as con:
-        if not con.execute(
-            "SELECT 1 FROM runs WHERE id = ?", (args.run_id,)
-        ).fetchone():
-            raise SystemExit(f"Unknown run id: {args.run_id}")
+        _validate_record(con, args)
+        if args.stage == "verdict":
+            verdict = args.verdict
+            if verdict and verdict not in RATINGS:
+                raise SystemExit("--verdict must be buy, hold, reduce, or omitted")
+            update_run_verdict(
+                con,
+                args.run_id,
+                verdict=verdict,
+                confidence=args.confidence,
+            )
         con.execute(
             """
             INSERT INTO contributions(
@@ -237,6 +324,8 @@ def parser() -> argparse.ArgumentParser:
     )
     record.add_argument("--actor", required=True)
     record.add_argument("--round", type=int)
+    record.add_argument("--verdict", choices=tuple(sorted(RATINGS)))
+    record.add_argument("--confidence")
     source = record.add_mutually_exclusive_group(required=True)
     source.add_argument("--content")
     source.add_argument("--content-file")
@@ -251,6 +340,14 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=10)
     search.set_defaults(func=cmd_search)
+
+    ui = sub.add_parser("serve", help="Start the local historical research UI")
+    ui.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)
+    ui.add_argument("--host", default="127.0.0.1")
+    ui.add_argument("--port", type=int, default=8765)
+    ui.set_defaults(
+        func=lambda args: serve(args.db, args.reports, args.host, args.port)
+    )
     return p
 
 

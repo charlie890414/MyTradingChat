@@ -14,6 +14,7 @@ from .connectors.technicals import compute_technicals, history_to_records
 from .db import (
     connect,
     connector_status,
+    evidence_reference,
     insert_evidence,
     insert_evidence_item,
     insert_evidence_items,
@@ -44,6 +45,7 @@ __all__ = [
     "compute_technicals",
     "connect",
     "connector_status",
+    "evidence_reference",
     "date_range_days",
     "fetch_yahoo",
     "history_to_records",
@@ -57,7 +59,9 @@ __all__ = [
     "resolve_taiwan_yahoo_symbol",
     "taiwan_code",
     "utc_now",
+    "serve",
 ]
 
 # Import render here to keep the original public API intact without a circular import.
 from .render import cmd_render, render_evidence  # noqa: E402
+from .web import serve  # noqa: E402

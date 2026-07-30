@@ -9,6 +9,9 @@ from typing import Any
 from .models import EvidenceItem
 from .utils import as_json, utc_now
 
+RUN_STATUSES = frozenset({"active", "incomplete", "completed", "failed"})
+RATINGS = frozenset({"buy", "hold", "reduce"})
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +53,38 @@ def connect(db_path: Path) -> sqlite3.Connection:
         """
     )
     return con
+
+
+def evidence_reference(evidence_id: int) -> str:
+    """Return the stable, user-facing reference for a persisted evidence row."""
+    return f"EVID-{evidence_id:04d}"
+
+
+def update_run_verdict(
+    con: sqlite3.Connection,
+    run_id: str,
+    *,
+    verdict: str | None,
+    confidence: str | None,
+) -> None:
+    """Persist a committee rating, or an explicit abstention represented by None."""
+    if verdict is not None and verdict not in RATINGS:
+        raise ValueError("verdict must be buy, hold, reduce, or None")
+    con.execute(
+        "UPDATE runs SET verdict = ?, confidence = ? WHERE id = ?",
+        (verdict, confidence, run_id),
+    )
+
+
+def delete_run(con: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
+    """Delete one run and dependent SQLite records, returning its former metadata."""
+    run = con.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    if not run:
+        return None
+    con.execute("DELETE FROM evidence WHERE run_id = ?", (run_id,))
+    con.execute("DELETE FROM contributions WHERE run_id = ?", (run_id,))
+    con.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+    return run
 
 
 def insert_evidence_item(con: sqlite3.Connection, item: EvidenceItem) -> None:
