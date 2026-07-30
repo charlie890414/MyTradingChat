@@ -2,7 +2,7 @@
 
 ## 1. Product Overview
 
-MyTradingChat is a local, Agents-native multi-agent equity research debate tool for Taiwan and US stocks. It gathers market evidence, coordinates specialist research agents, runs bull and bear debates, and produces a Markdown report with traceable evidence.
+MyTradingChat is a local, Agents-native multi-agent equity research debate tool for Taiwan and US stocks. It gathers market evidence, coordinates specialist research agents, runs bull and bear debates, produces a Markdown report with traceable evidence, and provides a local UI for browsing historical research.
 
 The product is a research and decision-support tool. It is not a trading system, does not connect to brokerages, and does not provide order execution instructions, position sizing, stop-loss levels, leverage guidance, or trade placement workflows.
 
@@ -31,6 +31,7 @@ The product is a research and decision-support tool. It is not a trading system,
 7. Persist evidence, analyst reports, debate turns, and verdicts in SQLite.
 8. Render a human-readable Markdown report.
 9. Support searching prior research without treating stale reports as current recommendations.
+10. Provide a local UI that lets users discover and review historical research runs.
 
 ## 5. Non-Goals
 
@@ -91,6 +92,23 @@ System flow:
 3. Create a new run.
 4. Fetch fresh evidence.
 5. Reassess the thesis using the new evidence pack without reusing stale prices, metrics, technical levels, or news conclusions as current facts.
+
+### 6.4 Browse Historical Research In The UI
+
+Example user request:
+
+```text
+在介面查看之前的 NVDA 研究
+```
+
+System flow:
+
+1. The user opens the local historical-research UI.
+2. The UI loads research runs from SQLite, sorted by creation time descending.
+3. The user searches by symbol or question and optionally filters by run status or verdict.
+4. The UI shows matching runs with the symbol, question, creation time, status, verdict, confidence, and report availability.
+5. The user selects a run to inspect its metadata, evidence pack, analyst reports, debate history, Investment Committee verdict, and Markdown report path or rendered report.
+6. The UI clearly labels every prior run as historical context and shows its creation and evidence-fetch times; it must not present stale information as a current recommendation.
 
 ## 7. Functional Requirements
 
@@ -249,6 +267,24 @@ Requirements:
 4. Default to at most `10` results.
 5. Sort results by creation time descending.
 
+### 7.11 Historical Research UI
+
+The system must provide a local UI for browsing persisted research history. The UI may be delivered as a local web application or desktop interface, but it must read the same SQLite database and report files as the CLI.
+
+Requirements:
+
+1. Provide a historical-runs list as the default view, sorted by creation time descending.
+2. Show each run's symbol, user question, creation time, status, verdict, confidence, and report availability.
+3. Support keyword search across symbol and question, with pagination or an explicit result limit.
+4. Support filters for status and verdict, including runs without a verdict or with an abstention.
+5. Allow users to open a run-detail view containing run metadata, evidence items, analyst reports, full bull/bear debate turns, and Investment Committee verdict.
+6. Display evidence IDs, source names, publication times, fetch times, URLs when available, connector errors or skipped states, and raw payloads on demand.
+7. Provide a link or in-app view for the rendered Markdown report when `report_path` exists; missing or inaccessible reports must be disclosed without hiding the persisted run data.
+8. Clearly display a historical-context warning on all prior-run list and detail views, including the run creation time and latest evidence fetch time.
+9. The UI must support deleting a historical research run only after an explicit confirmation that identifies the run ID and symbol. Deletion must remove the run, its evidence items, contributions, and rendered report directory when present; it must disclose if a report file could not be removed.
+10. The UI must not provide editing or overwriting of historical research data in the first release; deletion is the only permitted mutation.
+11. The UI must not display trade execution guidance, order-entry controls, position sizing, stop-loss levels, or brokerage integrations.
+
 ## 8. Data Model
 
 ### 8.1 runs
@@ -342,6 +378,7 @@ Final Agent workflow responses should be in Traditional Chinese.
 5. Connector failures are disclosed as data gaps.
 6. Major factual claims cite evidence.
 7. No trade execution guidance appears in final output.
+8. A user can find and open a prior research run through the local UI.
 
 ## 11. Acceptance Criteria
 
@@ -353,8 +390,13 @@ Final Agent workflow responses should be in Traditional Chinese.
 6. `record` requires non-empty inline content or a content file.
 7. `render` writes `reports/<date>/<symbol>/report.md`.
 8. `search` finds prior runs by symbol, question, or contribution content.
-9. `pytest` passes.
-10. `ruff check .` passes.
+9. The historical research UI lists persisted runs in descending creation-time order and shows the required summary fields.
+10. The UI can search by symbol or question, filter by status or verdict, and open a complete run-detail view.
+11. The UI labels prior research as historical context and displays creation and evidence-fetch times.
+12. The UI requires explicit confirmation before deletion, then removes the selected run and its associated persisted data and report when present.
+13. The UI does not expose trade-execution controls.
+14. `pytest` passes.
+15. `ruff check .` passes.
 
 ## 12. Risks And Limitations
 
@@ -371,3 +413,4 @@ Final Agent workflow responses should be in Traditional Chinese.
 3. Add explicit run statuses such as `active`, `incomplete`, `completed`, and `failed`.
 4. Persist verdict and confidence into the existing `runs.verdict` and `runs.confidence` fields.
 5. Keep documentation aligned around `Agents`, `Agent workflow`, `controller agent`, and `multi-agent workflow` terminology.
+6. Define the local UI technology, launch command, and authentication model if the tool is later exposed beyond a single local user.
