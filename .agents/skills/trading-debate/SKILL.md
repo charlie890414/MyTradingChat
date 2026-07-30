@@ -142,9 +142,11 @@ The sub-skill covers the required output format, research rating definitions, in
 Persist the Committee report and render the final Markdown:
 
 ```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
+python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
 python -m trading_debate.cli render --run-id <run-id> --reports reports
 ```
+
+`--verdict` and `--confidence` are required for the verdict stage. Without them, `render` will mark the run as `incomplete` because the rating is not written to the runs table.
 
 `render` writes `<run-id>.md` into `--reports` (default `reports/`) combining the evidence pack, analyst reports, debate turns, and verdict.
 

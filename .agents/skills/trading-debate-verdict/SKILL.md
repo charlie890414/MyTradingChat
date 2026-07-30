@@ -112,21 +112,15 @@ The Committee must explicitly explain:
 ## Persist verdict
 
 ```powershell
-python .\trading_debate.py record --run-id <run-id> --stage verdict --actor "Investment Committee" --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
+python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor "Investment Committee" --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
 ```
 
-Recommended idempotency key:
+`--verdict` and `--confidence` are required for the verdict stage. The CLI uses these values to write the rating into the runs table. If omitted, `render` will mark the run as `incomplete` because the rating is absent.
 
-```text
-run_id + stage + actor
-```
-
-## Render
-
-After successful validation:
+After successful validation, verify the render status is `completed`:
 
 ```powershell
-python .\trading_debate.py render --run-id <run-id>
+python -m trading_debate.cli render --run-id <run-id>
 ```
 
 The rendered report must preserve:
