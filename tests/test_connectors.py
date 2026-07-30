@@ -265,6 +265,37 @@ def test_fetch_finmind_uses_correct_institutional_dataset_name(
     assert "TaiwanStockInstitutionalInvestorsBuySell" in datasets
 
 
+@patch("trading_debate.connectors.finmind.os.getenv")
+@patch("trading_debate.connectors.finmind.request_json")
+def test_fetch_finmind_taiwan_stock_news_uses_single_day(mock_request, mock_getenv):
+    mock_getenv.return_value = "fake-token"
+    mock_request.return_value = {"status": 200, "data": []}
+    fetch_finmind("run-1", "2330.TW", 10)
+    news_calls = [
+        call.args[1]
+        for call in mock_request.call_args_list
+        if len(call.args) >= 2 and call.args[1].get("dataset") == "TaiwanStockNews"
+    ]
+    assert len(news_calls) == 1
+    assert "end_date" not in news_calls[0]
+
+
+@patch("trading_debate.connectors.finmind.os.getenv")
+@patch("trading_debate.connectors.finmind.request_json")
+def test_fetch_finmind_other_datasets_include_end_date(mock_request, mock_getenv):
+    mock_getenv.return_value = "fake-token"
+    mock_request.return_value = {"status": 200, "data": []}
+    fetch_finmind("run-1", "2330.TW", 10)
+    non_news_calls = [
+        call.args[1]
+        for call in mock_request.call_args_list
+        if len(call.args) >= 2 and call.args[1].get("dataset") != "TaiwanStockNews"
+    ]
+    assert non_news_calls
+    for params in non_news_calls:
+        assert "end_date" in params
+
+
 @patch("trading_debate.connectors.twse.request_json")
 def test_fetch_twse_mops_returns_profile_for_taiwan_code(mock_request):
     mock_request.side_effect = [

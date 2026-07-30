@@ -14,6 +14,7 @@ _DATASETS = {
         "source": "FinMind TaiwanStockNews",
         "title": "Taiwan stock news",
         "days": 365,
+        "single_day": True,
     },
     "TaiwanStockMonthRevenue": {
         "source": "FinMind TaiwanStockMonthRevenue",
@@ -62,14 +63,16 @@ def _fetch_dataset(
 ) -> dict[str, Any]:
     config = _DATASETS[dataset]
     start, end = date_range_days(int(config["days"]))
+    params: dict[str, Any] = {
+        "dataset": dataset,
+        "data_id": code,
+        "start_date": start,
+    }
+    if not config.get("single_day"):
+        params["end_date"] = end
     return request_json(
         "https://api.finmindtrade.com/api/v4/data",
-        {
-            "dataset": dataset,
-            "data_id": code,
-            "start_date": start,
-            "end_date": end,
-        },
+        params,
         headers=headers,
     )
 
