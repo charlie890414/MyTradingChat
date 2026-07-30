@@ -125,6 +125,7 @@ trading-debate context
 trading-debate record
 trading-debate render
 trading-debate search
+trading-debate serve
 ```
 
 ### 7.2 Create Research Run
@@ -269,7 +270,13 @@ Requirements:
 
 ### 7.11 Historical Research UI
 
-The system must provide a local UI for browsing persisted research history. The UI may be delivered as a local web application or desktop interface, but it must read the same SQLite database and report files as the CLI.
+The system must provide a local web UI for browsing persisted research history. The UI is implemented with Python's stdlib `http.server` and Jinja2 templates; static assets live in `trading_debate/static/` and HTML templates live in `trading_debate/templates/`.
+
+Launch command:
+
+```powershell
+trading-debate serve --db data/research.sqlite3 --reports reports [--host HOST] [--port PORT]
+```
 
 Requirements:
 
@@ -284,6 +291,7 @@ Requirements:
 9. The UI must support deleting a historical research run only after an explicit confirmation that identifies the run ID and symbol. Deletion must remove the run, its evidence items, contributions, and rendered report directory when present; it must disclose if a report file could not be removed.
 10. The UI must not provide editing or overwriting of historical research data in the first release; deletion is the only permitted mutation.
 11. The UI must not display trade execution guidance, order-entry controls, position sizing, stop-loss levels, or brokerage integrations.
+12. The UI must be responsive: desktop views use a data table, and narrow/mobile views use a card list for the same research runs.
 
 ## 8. Data Model
 
@@ -344,7 +352,8 @@ Purpose: stores analyst reports, debate turns, and Investment Committee verdicts
 
 1. SQLite data is stored in `data/research.sqlite3`.
 2. Markdown reports are stored under `reports/`.
-3. `data/` and `reports/` should not be committed to Git.
+3. UI templates and static assets are shipped with the package under `trading_debate/templates/` and `trading_debate/static/`.
+4. `data/` and `reports/` should not be committed to Git.
 
 ### 9.2 Traceability
 
@@ -413,4 +422,4 @@ Final Agent workflow responses should be in Traditional Chinese.
 3. Add explicit run statuses such as `active`, `incomplete`, `completed`, and `failed`.
 4. Persist verdict and confidence into the existing `runs.verdict` and `runs.confidence` fields.
 5. Keep documentation aligned around `Agents`, `Agent workflow`, `controller agent`, and `multi-agent workflow` terminology.
-6. Define the local UI technology, launch command, and authentication model if the tool is later exposed beyond a single local user.
+6. Decide whether the local web UI should support authentication or be exposed beyond a single local user.

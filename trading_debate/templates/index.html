@@ -1,0 +1,138 @@
+<h1>歷史研究</h1>
+<p class="subtle">集中檢視已保存的研究、證據與委員會結論。</p>
+
+{% if message %}
+<div class="notice success">{{ message }}</div>
+{% endif %}
+
+<div class="cards">
+  <div class="card"><b>{{ total }}</b><span>全部研究</span></div>
+  {% for key, count in status_counts %}
+  <div class="card"><b>{{ count }}</b><span>{{ key }}</span></div>
+  {% endfor %}
+</div>
+
+<section class="panel">
+  <form class="filters" method="get">
+    <label class="field">
+      搜尋
+      <input name="q" value="{{ text }}" placeholder="代號或研究問題">
+    </label>
+    <label class="field">
+      狀態
+      <select name="status">
+        <option value="">全部</option>
+        {{ status_options | safe }}
+      </select>
+    </label>
+    <label class="field">
+      評等
+      <select name="verdict">
+        <option value="">全部</option>
+        {{ verdict_options | safe }}
+      </select>
+    </label>
+    <button>篩選研究</button>
+  </form>
+</section>
+
+<form class="panel" method="post" action="/runs/delete">
+  <div class="actions">
+    <label><input type="checkbox" data-select-all> 全選</label>
+    <strong data-selected-count>已選取 0 筆</strong>
+    <label>輸入 <code>DELETE N</code> 確認<input name="confirm" placeholder="例如 DELETE 2"></label>
+    <button class="danger" data-delete-selected disabled>刪除已選取項目</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>代號</th>
+          <th>問題</th>
+          <th>建立時間</th>
+          <th>狀態</th>
+          <th>評等</th>
+          <th>信心</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <input type="checkbox" name="run_id" value="{{ row['id'] }}" data-select-run>
+          </td>
+          <td>
+            <a class="symbol" href="/runs/{{ row['id'] | urlencode }}">{{ row['symbol'] }}</a>
+          </td>
+          <td>{{ row['question'] }}</td>
+          <td>{{ row['created_at'] }}</td>
+          <td>{{ badge(row['status'], 'status') | safe }}</td>
+          <td>{{ badge(row['verdict'], 'verdict') | safe }}</td>
+          <td>{{ row['confidence'] or '—' }}</td>
+          <td>
+            <div class="actions">
+              <a class="button secondary" href="/runs/{{ row['id'] | urlencode }}">查看</a>
+              <button class="danger" type="button"
+                data-delete='{{ row["id"] }}'
+                data-symbol='{{ row["symbol"] }}'
+                data-question='{{ row["question"] }}'>🗑 刪除</button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">沒有符合條件的研究。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mobile-list">
+    {% for row in rows %}
+    <div class="mobile-card">
+      <div class="mobile-header">
+        <input type="checkbox" name="run_id" value="{{ row['id'] }}" data-select-run>
+        <a class="symbol" href="/runs/{{ row['id'] | urlencode }}">{{ row['symbol'] }}</a>
+        <div class="actions">
+          <a class="button secondary" href="/runs/{{ row['id'] | urlencode }}">查看</a>
+          <button class="danger" type="button"
+            data-delete='{{ row["id"] }}'
+            data-symbol='{{ row["symbol"] }}'
+            data-question='{{ row["question"] }}'>🗑 刪除</button>
+        </div>
+      </div>
+      <div class="mobile-body">
+        <div class="row"><span class="label">問題</span>{{ row['question'] }}</div>
+        <div class="row"><span class="label">建立時間</span>{{ row['created_at'] }}</div>
+        <div class="row"><span class="label">狀態</span>{{ badge(row['status'], 'status') | safe }}</div>
+        <div class="row"><span class="label">評等</span>{{ badge(row['verdict'], 'verdict') | safe }}</div>
+        <div class="row"><span class="label">信心</span>{{ row['confidence'] or '—' }}</div>
+      </div>
+    </div>
+    {% else %}
+    <p class="muted">沒有符合條件的研究。</p>
+    {% endfor %}
+  </div>
+</form>
+
+<script>
+  const all = document.querySelector('[data-select-all]'),
+    selected = () => [...document.querySelectorAll('[data-select-run]:checked')];
+
+  function updateBulk() {
+    const n = selected().length;
+    document.querySelector('[data-selected-count]').textContent = '已選取 ' + n + ' 筆';
+    document.querySelector('[data-delete-selected]').disabled = !n;
+  }
+
+  all?.addEventListener('change', e => {
+    document.querySelectorAll('[data-select-run]').forEach(x => x.checked = e.target.checked);
+    updateBulk();
+  });
+
+  document.querySelectorAll('[data-select-run]').forEach(x =>
+    x.addEventListener('change', updateBulk)
+  );
+</script>

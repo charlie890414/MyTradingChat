@@ -72,6 +72,35 @@ def test_ui_delete_removes_run_data_and_report_directory(tmp_path: Path):
         assert con.execute("SELECT * FROM contributions").fetchall() == []
 
 
+def test_layout_links_to_static_stylesheet():
+    page = _layout("歷史研究", "")
+    assert '<link rel="stylesheet" href="/static/style.css">' in page
+
+
+def test_history_list_layout_allocates_space_for_confidence_and_actions():
+    style_path = (
+        Path(__file__).parent.parent / "trading_debate" / "static" / "style.css"
+    )
+    style = style_path.read_text(encoding="utf-8")
+    assert "width: 85px" in style
+    assert "width: 160px" in style
+    assert "overflow-wrap: anywhere" in style
+    assert "flex-wrap: wrap" in style
+
+
+def test_history_list_includes_mobile_card_view(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    app = object.__new__(ResearchApp)
+    app.db_path = db_path
+    app.reports_path = tmp_path / "reports"
+    page = _layout("歷史研究", app._list_content({}))
+    assert "mobile-list" in page
+    assert "mobile-card" in page
+    assert "NVDA" in page
+    assert "data-delete='run-1'" in page
+
+
 def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"

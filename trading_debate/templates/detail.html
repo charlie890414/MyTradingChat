@@ -1,0 +1,64 @@
+<p><a href="/">← 返回歷史研究</a></p>
+<h1>{{ symbol }}</h1>
+<p class="subtle">{{ question }}</p>
+
+<div class="meta">
+  <div class="card">
+    <span>研究 ID</span>
+    <b>{{ run_id }}</b>
+  </div>
+  <div class="card">
+    <span>建立時間</span>
+    <b>{{ created_at }}</b>
+  </div>
+  <div class="card">
+    <span>狀態／評等</span>
+    <b>{{ badge(status, 'status') | safe }} {{ badge(verdict, 'verdict') | safe }}</b>
+  </div>
+  <div class="card">
+    <span>信心</span>
+    <b>{{ confidence or '—' }}</b>
+  </div>
+</div>
+
+<p>{{ report | safe }}</p>
+
+<h2>證據包</h2>
+{% if evidence %}
+  {% for item in evidence %}
+  <details>
+    <summary>[{{ item['reference'] }}] {{ item['source'] }} — {{ item['title'] }}</summary>
+    <p class="muted">發布：{{ item['published_at'] or '未知' }}｜擷取：{{ item['fetched_at'] }}</p>
+    {% if item['url'] %}
+    <p><a href="{{ item['url'] }}" target="_blank">開啟來源 ↗</a></p>
+    {% endif %}
+    <pre>{{ item['payload_json'] }}</pre>
+  </details>
+  {% endfor %}
+{% else %}
+<p class="muted">沒有證據。</p>
+{% endif %}
+
+<h2>分析、辯論與委員會</h2>
+{% if parts %}
+  {% for item in parts %}
+  <details>
+    <summary>
+      {{ item['stage'] }} — {{ item['actor'] }}
+      {% if item['round_no'] %}（第 {{ item['round_no'] }} 回合）{% endif %}
+    </summary>
+    <pre>{{ item['content'] }}</pre>
+  </details>
+  {% endfor %}
+{% else %}
+<p class="muted">沒有已保存的工作流程內容。</p>
+{% endif %}
+
+<section class="panel danger-zone">
+  <h2>危險操作</h2>
+  <p>永久刪除這筆研究及其所有資料，無法復原。</p>
+  <button class="danger" type="button"
+    data-delete="{{ run_id }}"
+    data-symbol="{{ symbol }}"
+    data-question="{{ question }}">🗑 刪除研究</button>
+</section>

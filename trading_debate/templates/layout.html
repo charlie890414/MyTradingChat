@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ escape(title) }}｜MyTradingChat</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="/">My<span>Trading</span>Chat</a>
+    </div>
+  </header>
+  <main class="page">
+    <div class="notice">
+      歷史研究僅供脈絡參考；價格、指標與新聞可能已過時，不能視為目前建議。
+    </div>
+    {{ content | safe }}
+  </main>
+  <div class="modal" id="delete-modal" aria-hidden="true">
+    <form class="dialog" method="post" id="delete-form">
+      <h2>刪除研究</h2>
+      <p>這將永久刪除研究、證據、分析、辯論及報表目錄，無法復原。</p>
+      <p id="delete-question"></p>
+      <p class="run-id" id="delete-run-id"></p>
+      <div class="dialog-actions">
+        <button class="secondary" type="button" data-close-modal>取消</button>
+        <button class="danger" type="submit">確認刪除</button>
+      </div>
+    </form>
+  </div>
+  <script>
+    const m = document.getElementById('delete-modal'),
+      f = document.getElementById('delete-form'),
+      rid = document.getElementById('delete-run-id'),
+      q = document.getElementById('delete-question');
+
+    function openDelete(action, summary, ids) {
+      f.action = action;
+      f.querySelectorAll('[name=run_id]').forEach(x => x.remove());
+      (ids || []).forEach(id => {
+        const x = document.createElement('input');
+        x.type = 'hidden';
+        x.name = 'run_id';
+        x.value = id;
+        f.append(x);
+      });
+      q.textContent = summary;
+      rid.textContent = ids ? '共 ' + ids.length + ' 筆研究' : action.split('/')[2];
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+    }
+
+    document.querySelectorAll('[data-delete]').forEach(b =>
+      b.addEventListener('click', () =>
+        openDelete(
+          '/runs/' + encodeURIComponent(b.dataset.delete) + '/delete',
+          b.dataset.symbol + '｜' + b.dataset.question
+        )
+      )
+    );
+
+    document.querySelector('[data-delete-selected]')?.addEventListener('click', () => {
+      const ids = [...document.querySelectorAll('[data-select-run]:checked')].map(x => x.value);
+      if (ids.length) openDelete('/runs/delete', '即將刪除已選取的研究', ids);
+    });
+
+    document.querySelectorAll('[data-close-modal]').forEach(b =>
+      b.addEventListener('click', () => m.classList.remove('open'))
+    );
+
+    m.addEventListener('click', e => {
+      if (e.target === m) m.classList.remove('open');
+    });
+  </script>
+</body>
+</html>
