@@ -2,7 +2,7 @@
 
 Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and Markdown for human-readable reports.
 
-Open this repository with an agent workflow and ask, for example: `分析 NVDA，現在是否值得投入`.
+Open this repository with an agent workflow and ask, for example: `分析 NVDA的多空觀點，並提供買入/持有/減碼的投資建議與目標價格`.
 
 Install the local tool once:
 
