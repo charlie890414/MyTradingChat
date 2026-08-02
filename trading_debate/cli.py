@@ -15,6 +15,7 @@ from .connectors import CONNECTORS, fetch_yahoo
 from .db import (
     RATINGS,
     connect,
+    delete_run,
     evidence_reference,
     insert_evidence_items,
     update_run_verdict,
@@ -61,6 +62,18 @@ def _run_connector(
 
 
 def cmd_init(args: argparse.Namespace) -> None:
+    if args.run_id:
+        with connect(args.db) as con:
+            run = con.execute(
+                "SELECT id, symbol, question, debate_rounds FROM runs WHERE id = ?",
+                (args.run_id,),
+            ).fetchone()
+        if not run:
+            raise SystemExit(f"Unknown run id: {args.run_id}")
+        print(as_json(dict(run)))
+        return
+    if not args.symbol or not args.question:
+        raise SystemExit("init requires --symbol and --question (or --run-id)")
     symbol = normalize_symbol(args.symbol)
     run_id = f"{symbol}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
     with connect(args.db) as con:
@@ -207,6 +220,14 @@ def _validate_record(con: Any, args: argparse.Namespace) -> None:
         raise SystemExit(f"Unknown run id: {args.run_id}")
     if run["status"] in {"completed", "failed"}:
         raise SystemExit(f"Cannot record a {run['status']} run")
+    if not args.force:
+        evidence_count = con.execute(
+            "SELECT COUNT(*) FROM evidence WHERE run_id = ?", (args.run_id,)
+        ).fetchone()[0]
+        if evidence_count == 0:
+            raise SystemExit(
+                "Run has no evidence yet; run fetch first (or pass --force)"
+            )
     if args.stage == "debate":
         if args.round is None or args.round < 1 or args.round > run["debate_rounds"]:
             raise SystemExit("Debate records require a valid --round")
@@ -305,16 +326,71 @@ def cmd_search(args: argparse.Namespace) -> None:
     with connect(args.db) as con:
         rows = con.execute(
             """
-            SELECT id, symbol, question, created_at, status, report_path
-            FROM runs
-            WHERE symbol LIKE ? OR question LIKE ? OR id IN (
+            SELECT r.id, r.symbol, r.question, r.created_at, r.status,
+                   r.report_path,
+                   (SELECT COUNT(*) FROM evidence e WHERE e.run_id = r.id)
+                       AS evidence_count,
+                   (SELECT COUNT(*) FROM contributions c WHERE c.run_id = r.id)
+                       AS contributions_count
+            FROM runs r
+            WHERE r.symbol LIKE ? OR r.question LIKE ? OR r.id IN (
                 SELECT run_id FROM contributions WHERE content LIKE ?
             )
-            ORDER BY created_at DESC LIMIT ?
+            ORDER BY r.created_at DESC LIMIT ?
             """,
             (term, term, term, args.limit),
         ).fetchall()
     print(as_json([dict(row) for row in rows]))
+
+
+def cmd_runs(args: argparse.Namespace) -> None:
+    with connect(args.db) as con:
+        rows = con.execute(
+            """
+            SELECT r.id, r.symbol, r.question, r.created_at, r.status,
+                   r.verdict, r.confidence, r.report_path,
+                   (SELECT COUNT(*) FROM evidence e WHERE e.run_id = r.id)
+                       AS evidence_count,
+                   (SELECT COUNT(*) FROM contributions c WHERE c.run_id = r.id)
+                       AS contributions_count
+            FROM runs r
+            ORDER BY r.created_at DESC LIMIT ?
+            """,
+            (args.limit,),
+        ).fetchall()
+    print(as_json([dict(row) for row in rows]))
+
+
+def cmd_purge(args: argparse.Namespace) -> None:
+    with connect(args.db) as con:
+        shell_ids = [
+            row["id"]
+            for row in con.execute(
+                """
+                SELECT r.id FROM runs r
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM evidence e WHERE e.run_id = r.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM contributions c WHERE c.run_id = r.id
+                )
+                ORDER BY r.created_at
+                """,
+            ).fetchall()
+        ]
+    if not shell_ids:
+        print(as_json({"shell_runs": [], "deleted": [], "requires_yes": False}))
+        return
+    if not args.yes:
+        print(as_json({"shell_runs": shell_ids, "deleted": [], "requires_yes": True}))
+        return
+    deleted: list[str] = []
+    with connect(args.db) as con:
+        for run_id in shell_ids:
+            run = delete_run(con, run_id)
+            if run:
+                deleted.append(run["id"])
+    print(as_json({"shell_runs": shell_ids, "deleted": deleted, "requires_yes": False}))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -323,9 +399,10 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(required=True)
 
     init = sub.add_parser("init")
-    init.add_argument("--symbol", required=True)
-    init.add_argument("--question", required=True)
+    init.add_argument("--symbol")
+    init.add_argument("--question")
     init.add_argument("--rounds", type=int, default=3)
+    init.add_argument("--run-id", help="Return an existing run instead of creating one")
     init.set_defaults(func=cmd_init)
 
     fetch = sub.add_parser("fetch")
@@ -346,6 +423,11 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--round", type=int)
     record.add_argument("--verdict", choices=tuple(sorted(RATINGS)))
     record.add_argument("--confidence")
+    record.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow recording into a run that has no evidence yet",
+    )
     source = record.add_mutually_exclusive_group(required=True)
     source.add_argument("--content")
     source.add_argument("--content-file")
@@ -360,6 +442,18 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=10)
     search.set_defaults(func=cmd_search)
+
+    runs = sub.add_parser("runs", help="List research runs with record counts")
+    runs.add_argument("--limit", type=int, default=50)
+    runs.set_defaults(func=cmd_runs)
+
+    purge = sub.add_parser(
+        "purge", help="Delete empty shell runs with no evidence and no contributions"
+    )
+    purge.add_argument(
+        "--yes", action="store_true", help="Confirm deletion without prompting"
+    )
+    purge.set_defaults(func=cmd_purge)
 
     ui = sub.add_parser("serve", help="Start the local historical research UI")
     ui.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)

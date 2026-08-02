@@ -14,8 +14,12 @@ Orchestrates a multi-stage equity research debate for Taiwan- or US-listed equit
 - Research ratings are not trade instructions.
 - Evidence pack is the single source of record for the run.
 - Run ID must be preserved and reused across all stages.
+- `init` is an orchestrator-only action. A subagent that receives a run-id must never invoke `init`.
+- A subagent must use exactly the run-id provided in the evidence pack for every read and write; it must not create, guess, or invent a run.
+- If a subagent has no run-id, or `context --run-id <id>` fails, it must stop and report to the orchestrator instead of creating a new run.
 - Sub-agent failures must be recorded, not silently replaced by parent-agent invention.
 - A failed persistence step blocks progression to dependent stages.
+- All CLI commands use the default database `data/research.sqlite3`. Never pass `--db`; an alternative path splits research history and leaves orphan databases (e.g. `trading.db`, `trading_debate.db`) that are not visible to `search` or the UI.
 
 ## Supported markets
 
@@ -58,7 +62,17 @@ When using a prior report:
 python -m trading_debate.cli init --symbol <SYMBOL> --question "<question>" --rounds <N>
 ```
 
+All commands in this workflow run against the default database `data/research.sqlite3`. Do not add `--db` to any command.
+
 Capture and retain the returned `run-id`.
+
+Verify the run exists before proceeding:
+
+```powershell
+python -m trading_debate.cli context --run-id <run-id>
+```
+
+`context` fails with `Unknown run id` when the run was not created; do not work around that failure by creating a new run. If init or context fails, report the failure instead of inventing a run.
 
 The run-id format is `<SYMBOL>-<YYYYMMDD-HHMMSS>-<6-char-hex>`. Extract `<SYMBOL>` and convert the date portion to `<YYYY-MM-DD>` for staging paths: `data/staging/<YYYY-MM-DD>/<SYMBOL>/`.
 
@@ -109,6 +123,8 @@ python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor s
 
 Pass `--content "<markdown string>"` instead of `--content-file` for short inline payloads. The CLI requires exactly one of `--content` or `--content-file`.
 
+After each `record`, confirm the echoed `run_id` equals the expected run-id. If an analyst report was persisted to a different run, retry it or stop; do not proceed with a missing analyst on the expected run. Use `python -m trading_debate.cli runs --limit 10` to inspect record counts when in doubt.
+
 ### 5. Run debate stage
 
 Execute the debate sub-skill (`trading-debate-debate`). Spawn Bull Researcher and Bear Researcher.
@@ -131,6 +147,8 @@ python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N>
 
 `--round <N>` is required for debate turns so the Committee can reconstruct turn order.
 
+After persisting each round, confirm both echoed `run_id` values equal the expected run-id and that the round has exactly two turns.
+
 ### 6. Run verdict stage
 
 Execute the verdict sub-skill (`trading-debate-verdict`). Spawn the Investment Committee subagent with all prior reports and the evidence pack.
@@ -149,6 +167,8 @@ python -m trading_debate.cli render --run-id <run-id> --reports reports
 `--verdict` and `--confidence` are required for the verdict stage. Without them, `render` will mark the run as `incomplete` because the rating is not written to the runs table.
 
 `render` writes `<run-id>.md` into `--reports` (default `reports/`) combining the evidence pack, analyst reports, debate turns, and verdict.
+
+Confirm every `record` echoed the expected run-id. If any echoed run-id differs, stop and investigate instead of rendering a run that is missing required parts.
 
 ### 7. Return result
 

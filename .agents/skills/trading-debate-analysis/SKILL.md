@@ -14,6 +14,14 @@ Spawn four independent subagents in parallel:
 
 Each analyst receives the same JSON evidence pack. Do not provide one analyst's conclusions to another analyst during this stage.
 
+## Run ownership
+
+You are a subagent. You do not own the research run.
+
+- Use only the run-id provided in the evidence pack for every `record` command.
+- Never invoke `init`, `fetch`, or `render`.
+- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+
 ## Common report requirements
 
 Every analyst report must:

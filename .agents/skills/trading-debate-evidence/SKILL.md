@@ -7,6 +7,14 @@ description: Evidence retrieval, validation, and safety rules for the trading-de
 
 This sub-skill defines the shared evidence pack and all rules that apply to evidence retrieval, citation, source handling, data gaps, and prompt injection protection. Every analyst, debater, and committee member must follow these rules.
 
+## Run ownership
+
+You are a subagent. You do not own the research run.
+
+- Use only the run-id provided in the shared evidence pack for every read and write.
+- Never invoke `init`, `fetch`, or `render`.
+- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+
 ## Shared evidence pack
 
 The evidence pack is the single source of record for the entire run. All subagents receive the same JSON context. No subagent independently browses for additional evidence unless the workflow explicitly supports appending evidence to the shared pack and recording the update for all later agents.

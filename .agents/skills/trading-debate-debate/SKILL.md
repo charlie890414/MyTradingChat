@@ -19,6 +19,14 @@ Give both researchers:
 
 All debate turns must be written in Traditional Chinese.
 
+## Run ownership
+
+You are a subagent. You do not own the research run.
+
+- Use only the run-id provided in the shared evidence pack for every `record` command.
+- Never invoke `init`, `fetch`, or `render`.
+- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+
 ## Debate rules
 
 Each turn must:

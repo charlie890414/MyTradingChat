@@ -6,7 +6,9 @@ from .cli import (
     cmd_context,
     cmd_fetch,
     cmd_init,
+    cmd_purge,
     cmd_record,
+    cmd_runs,
     cmd_search,
 )
 from .connectors import CONNECTORS, fetch_yahoo
@@ -44,8 +46,10 @@ __all__ = [
     "cmd_context",
     "cmd_fetch",
     "cmd_init",
+    "cmd_purge",
     "cmd_record",
     "cmd_render",
+    "cmd_runs",
     "cmd_search",
     "company_search_name",
     "compute_technicals",

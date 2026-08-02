@@ -24,6 +24,7 @@ def test_cmd_init(tmp_path: Path):
     args.symbol = "AAPL"
     args.question = "Analyze AAPL"
     args.rounds = 3
+    args.run_id = None
     with patch("trading_debate.utils.as_json") as mock_json:
         mock_json.return_value = "{}"
         td.cmd_init(args)
@@ -45,6 +46,7 @@ def test_cmd_init_default_rounds(tmp_path: Path):
     args.symbol = "2330.TW"
     args.question = "Test"
     args.rounds = 3
+    args.run_id = None
     with patch("trading_debate.utils.as_json") as mock_json:
         mock_json.return_value = "{}"
         td.cmd_init(args)
@@ -63,6 +65,7 @@ def test_cmd_init_normalizes_taiwan_code(tmp_path: Path):
     args.symbol = "3037"
     args.question = "Analyze Unimicron"
     args.rounds = 3
+    args.run_id = None
     with patch("trading_debate.utils.as_json") as mock_json:
         mock_json.return_value = "{}"
         td.cmd_init(args)
@@ -731,6 +734,11 @@ def test_cmd_record_valid(tmp_path: Path, capsys):
         "VALUES (?, ?, ?, ?, ?, ?)",
         ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
     )
+    con.execute(
+        "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("run-1", "Yahoo Finance", "Price evidence", None, None, "{}", td.utc_now()),
+    )
     con.commit()
     con.close()
 
@@ -742,11 +750,234 @@ def test_cmd_record_valid(tmp_path: Path, capsys):
     args.stage = "analysis"
     args.actor = "Fundamentals Analyst"
     args.round = None
+    args.force = False
     td.cmd_record(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["recorded"] is True
     assert parsed["stage"] == "analysis"
+
+
+def test_cmd_record_requires_evidence(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.content_file = None
+    args.content = "Analysis content"
+    args.stage = "analysis"
+    args.actor = "Fundamentals Analyst"
+    args.round = None
+    args.force = False
+    with pytest.raises(SystemExit, match="no evidence"):
+        td.cmd_record(args)
+
+
+def test_cmd_record_force_allows_empty_run(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.content_file = None
+    args.content = "Analysis content"
+    args.stage = "analysis"
+    args.actor = "Fundamentals Analyst"
+    args.round = None
+    args.force = True
+    td.cmd_record(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["recorded"] is True
+
+
+def test_cmd_init_existing_run_id_is_idempotent(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    td.cmd_init(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["id"] == "run-1"
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    runs = con.execute("SELECT * FROM runs").fetchall()
+    assert len(runs) == 1
+    con.close()
+
+
+def test_cmd_init_unknown_run_id_errors(tmp_path: Path):
+    args = MagicMock()
+    args.db = tmp_path / "test.db"
+    args.run_id = "nonexistent"
+    with pytest.raises(SystemExit, match="Unknown run id"):
+        td.cmd_init(args)
+
+
+def test_cmd_init_requires_symbol_and_question(tmp_path: Path):
+    args = MagicMock()
+    args.db = tmp_path / "test.db"
+    args.run_id = None
+    args.symbol = None
+    args.question = "Test"
+    args.rounds = 3
+    with pytest.raises(SystemExit, match="init requires"):
+        td.cmd_init(args)
+
+
+def test_cmd_runs_lists_counts(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    for run_id in ("run-1", "run-2"):
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, "AAPL", "Test", 3, td.utc_now(), "active"),
+        )
+    con.execute(
+        "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("run-1", "Yahoo Finance", "Price", None, None, "{}", td.utc_now()),
+    )
+    con.execute(
+        "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "analysis", "Fundamentals Analyst", None, "c", td.utc_now()),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.limit = 50
+    td.cmd_runs(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    by_id = {row["id"]: row for row in parsed}
+    assert by_id["run-1"]["evidence_count"] == 1
+    assert by_id["run-1"]["contributions_count"] == 1
+    assert by_id["run-2"]["evidence_count"] == 0
+    assert by_id["run-2"]["contributions_count"] == 0
+
+
+def test_cmd_purge_requires_confirmation(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("shell-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.yes = False
+    td.cmd_purge(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["shell_runs"] == ["shell-1"]
+    assert parsed["requires_yes"] is True
+    assert parsed["deleted"] == []
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    runs = con.execute("SELECT id FROM runs").fetchall()
+    assert len(runs) == 1
+    con.close()
+
+
+def test_cmd_purge_removes_empty_runs(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    for run_id in ("shell-1", "shell-2"):
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (run_id, "AAPL", "Test", 3, td.utc_now(), "active"),
+        )
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("real-1", "NVDA", "Test", 3, td.utc_now(), "active"),
+    )
+    con.execute(
+        "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("real-1", "Yahoo Finance", "Price", None, None, "{}", td.utc_now()),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.yes = True
+    td.cmd_purge(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed["deleted"] == ["shell-1", "shell-2"]
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    runs = con.execute("SELECT id FROM runs").fetchall()
+    assert [row["id"] for row in runs] == ["real-1"]
+    con.close()
+
+
+def test_cmd_search_includes_counts(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "NVDA", "Analyze NVDA", 3, td.utc_now(), "active"),
+    )
+    con.execute(
+        "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("run-1", "Yahoo Finance", "Price", None, None, "{}", td.utc_now()),
+    )
+    con.commit()
+    con.close()
+
+    args = MagicMock()
+    args.db = db_path
+    args.query = "NVDA"
+    args.limit = 10
+    td.cmd_search(args)
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out.strip())
+    assert parsed[0]["evidence_count"] == 1
+    assert parsed[0]["contributions_count"] == 0
 
 
 def test_max_workers_is_limited():
