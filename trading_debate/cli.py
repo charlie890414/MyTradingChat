@@ -13,11 +13,13 @@ from uuid import uuid4
 
 from .connectors import CONNECTORS, fetch_yahoo
 from .db import (
+    CONFIDENCE_LEVELS,
     RATINGS,
     connect,
     delete_run,
     evidence_reference,
     insert_evidence_items,
+    normalize_contribution_actor,
     update_run_verdict,
 )
 from .models import EvidenceItem, YahooFetchResult
@@ -214,7 +216,95 @@ def cmd_context(args: argparse.Namespace) -> None:
     )
 
 
-def _validate_record(con: Any, args: argparse.Namespace) -> None:
+_ANALYSTS = {"fundamentals", "technical", "news", "sentiment"}
+
+
+def _option(args: argparse.Namespace, name: str) -> str | None:
+    value = getattr(args, name, None)
+    return value if isinstance(value, str) else None
+
+
+def _flag(args: argparse.Namespace, name: str) -> bool:
+    return getattr(args, name, False) is True
+
+
+def _validate_verdict_options(
+    args: argparse.Namespace,
+) -> tuple[str | None, str | None]:
+    verdict = _option(args, "verdict")
+    confidence = _option(args, "confidence")
+    abstain = _flag(args, "abstain")
+    if args.stage != "verdict":
+        if verdict or confidence or abstain:
+            raise SystemExit("--verdict, --confidence, and --abstain are verdict-only")
+        return None, None
+    if abstain:
+        if verdict or confidence:
+            raise SystemExit(
+                "--abstain cannot be combined with --verdict or --confidence"
+            )
+        return None, None
+    if verdict not in RATINGS or confidence not in CONFIDENCE_LEVELS:
+        raise SystemExit(
+            "Verdict requires --verdict buy|hold|reduce and "
+            "--confidence low|medium|high, or --abstain"
+        )
+    return verdict, confidence
+
+
+def _existing_contribution(
+    con: Any, run_id: str, stage: str, actor: str, round_no: int | None
+) -> Any:
+    return con.execute(
+        "SELECT * FROM contributions WHERE run_id = ? AND stage = ? AND actor = ? "
+        "AND IFNULL(round_no, 0) = ?",
+        (run_id, stage, actor, round_no or 0),
+    ).fetchone()
+
+
+def _has_downstream_records(
+    con: Any, run: Any, stage: str, actor: str, round_no: int | None
+) -> bool:
+    if stage == "analysis":
+        return bool(
+            con.execute(
+                "SELECT 1 FROM contributions WHERE run_id = ? "
+                "AND stage IN ('debate', 'verdict') LIMIT 1",
+                (run["id"],),
+            ).fetchone()
+        )
+    if stage == "verdict":
+        return bool(run["report_path"])
+    if actor == "bull":
+        query = (
+            "SELECT 1 FROM contributions WHERE run_id = ? AND stage = 'debate' "
+            "AND (round_no > ? OR (round_no = ? AND actor = 'bear')) LIMIT 1"
+        )
+        params = (run["id"], round_no, round_no)
+    else:
+        query = (
+            "SELECT 1 FROM contributions WHERE run_id = ? AND stage = 'debate' "
+            "AND round_no > ? LIMIT 1"
+        )
+        params = (run["id"], round_no)
+    if con.execute(query, params).fetchone():
+        return True
+    return bool(
+        con.execute(
+            "SELECT 1 FROM contributions WHERE run_id = ? "
+            "AND stage = 'verdict' LIMIT 1",
+            (run["id"],),
+        ).fetchone()
+    )
+
+
+def _validate_record(
+    con: Any,
+    args: argparse.Namespace,
+    actor: str,
+    *,
+    existing: Any | None = None,
+) -> Any:
     run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
     if not run:
         raise SystemExit(f"Unknown run id: {args.run_id}")
@@ -228,36 +318,62 @@ def _validate_record(con: Any, args: argparse.Namespace) -> None:
             raise SystemExit(
                 "Run has no evidence yet; run fetch first (or pass --force)"
             )
-    if args.stage == "debate":
+    if args.stage == "analysis":
+        if args.round is not None:
+            raise SystemExit("--round is only valid for debate records")
+        if con.execute(
+            "SELECT 1 FROM contributions WHERE run_id = ? "
+            "AND stage IN ('debate', 'verdict') LIMIT 1",
+            (args.run_id,),
+        ).fetchone():
+            raise SystemExit("Analysis records must be completed before debate begins")
+    elif args.stage == "debate":
         if args.round is None or args.round < 1 or args.round > run["debate_rounds"]:
             raise SystemExit("Debate records require a valid --round")
-        actor = args.actor.lower()
-        if actor not in {"bull", "bear"}:
-            raise SystemExit("Debate actor must be bull or bear")
+        analyses = {
+            row["actor"]
+            for row in con.execute(
+                "SELECT actor FROM contributions WHERE run_id = ? "
+                "AND stage = 'analysis'",
+                (args.run_id,),
+            ).fetchall()
+        }
+        if not _ANALYSTS.issubset(analyses):
+            raise SystemExit("Debate requires all four analyst reports")
         turns = con.execute(
-            "SELECT actor FROM contributions WHERE run_id = ? AND stage = 'debate' "
-            "AND round_no = ? ORDER BY id",
-            (args.run_id, args.round),
+            "SELECT actor, round_no FROM contributions WHERE run_id = ? "
+            "AND stage = 'debate' ORDER BY round_no, id",
+            (args.run_id,),
         ).fetchall()
-        existing = [row["actor"].lower() for row in turns]
-        expected_actor = (
-            "bull" if not existing else "bear" if existing == ["bull"] else None
+        expected_turns = [
+            (expected_actor, expected_round)
+            for expected_round in range(1, run["debate_rounds"] + 1)
+            for expected_actor in ("bull", "bear")
+        ]
+        actual_turns = [(row["actor"], row["round_no"]) for row in turns]
+        if actual_turns != expected_turns[: len(actual_turns)]:
+            raise SystemExit("Existing debate turns are out of order")
+        next_turn = (
+            expected_turns[len(actual_turns)]
+            if len(actual_turns) < len(expected_turns)
+            else None
         )
-        if actor != expected_actor:
-            raise SystemExit("Each debate round must record bull first, then bear")
+        if existing is None and (actor, args.round) != next_turn:
+            raise SystemExit(
+                "Debate records must be sequential: bull, then bear, round by round"
+            )
     elif args.round is not None:
         raise SystemExit("--round is only valid for debate records")
     elif args.stage == "verdict":
         analyses = {
-            row["actor"].lower()
+            row["actor"]
             for row in con.execute(
                 "SELECT actor FROM contributions "
                 "WHERE run_id = ? AND stage = 'analysis'",
                 (args.run_id,),
             ).fetchall()
         }
-        required_analyses = {"fundamentals", "technical", "news", "sentiment"}
-        if not required_analyses.issubset(analyses):
+        if not _ANALYSTS.issubset(analyses):
             raise SystemExit("Verdict requires all four analyst reports")
         debate_turns = con.execute(
             "SELECT actor, round_no FROM contributions WHERE run_id = ? "
@@ -269,9 +385,10 @@ def _validate_record(con: Any, args: argparse.Namespace) -> None:
             for round_no in range(1, run["debate_rounds"] + 1)
             for actor in ("bull", "bear")
         ]
-        actual = [(row["actor"].lower(), row["round_no"]) for row in debate_turns]
+        actual = [(row["actor"], row["round_no"]) for row in debate_turns]
         if actual != expected:
             raise SystemExit("Verdict requires all bull/bear debate turns in order")
+    return run
 
 
 def cmd_record(args: argparse.Namespace) -> None:
@@ -282,40 +399,84 @@ def cmd_record(args: argparse.Namespace) -> None:
     )
     if not content or not content.strip():
         raise SystemExit("Provide non-empty --content or --content-file")
+    verdict, confidence = _validate_verdict_options(args)
+    replace = _flag(args, "replace")
     with connect(args.db) as con:
-        _validate_record(con, args)
-        if args.stage == "verdict":
-            verdict = args.verdict
-            if verdict and verdict not in RATINGS:
-                raise SystemExit("--verdict must be buy, hold, reduce, or omitted")
-            update_run_verdict(
-                con,
-                args.run_id,
-                verdict=verdict,
-                confidence=args.confidence,
-            )
-        con.execute(
-            """
-            INSERT INTO contributions(
-                run_id, stage, actor, round_no, content, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                args.run_id,
-                args.stage,
-                args.actor,
-                args.round,
-                content.strip(),
-                utc_now(),
-            ),
+        con.execute("BEGIN IMMEDIATE")
+        run_metadata = con.execute(
+            "SELECT * FROM runs WHERE id = ?", (args.run_id,)
+        ).fetchone()
+        if not run_metadata:
+            raise SystemExit(f"Unknown run id: {args.run_id}")
+        try:
+            actor = normalize_contribution_actor(args.stage, args.actor)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        existing = _existing_contribution(
+            con, args.run_id, args.stage, actor, args.round
         )
+        if existing:
+            same_content = existing["content"] == content.strip()
+            same_verdict = args.stage != "verdict" or (
+                run_metadata["verdict"],
+                run_metadata["confidence"],
+            ) == (verdict, confidence)
+            if same_content and same_verdict:
+                record_status = "duplicate"
+            else:
+                if not replace:
+                    raise SystemExit(
+                        "A different contribution already exists; "
+                        "pass --replace to overwrite it"
+                    )
+                if _has_downstream_records(
+                    con, run_metadata, args.stage, actor, args.round
+                ):
+                    raise SystemExit(
+                        "Cannot replace a contribution with downstream records"
+                    )
+                _validate_record(con, args, actor, existing=existing)
+                con.execute(
+                    "UPDATE contributions SET content = ?, created_at = ? WHERE id = ?",
+                    (content.strip(), utc_now(), existing["id"]),
+                )
+                if args.stage == "verdict":
+                    update_run_verdict(
+                        con, args.run_id, verdict=verdict, confidence=confidence
+                    )
+                record_status = "replaced"
+        else:
+            _validate_record(con, args, actor, existing=None)
+            if replace:
+                raise SystemExit("--replace requires an existing logical contribution")
+            if args.stage == "verdict":
+                update_run_verdict(
+                    con, args.run_id, verdict=verdict, confidence=confidence
+                )
+            con.execute(
+                """
+                INSERT INTO contributions(
+                    run_id, stage, actor, round_no, content, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    args.run_id,
+                    args.stage,
+                    actor,
+                    args.round,
+                    content.strip(),
+                    utc_now(),
+                ),
+            )
+            record_status = "created"
     print(
         as_json(
             {
                 "recorded": True,
                 "run_id": args.run_id,
-                "actor": args.actor,
+                "actor": actor,
                 "stage": args.stage,
+                "record_status": record_status,
             }
         )
     )
@@ -423,6 +584,8 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--round", type=int)
     record.add_argument("--verdict", choices=tuple(sorted(RATINGS)))
     record.add_argument("--confidence")
+    record.add_argument("--abstain", action="store_true")
+    record.add_argument("--replace", action="store_true")
     record.add_argument(
         "--force",
         action="store_true",

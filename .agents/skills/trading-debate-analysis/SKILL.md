@@ -46,7 +46,7 @@ Each analyst must use the following Markdown structure:
 ## 執行摘要
 
 ## 已確認事實
-- [EVID-001] ...
+- [EVID-0001] ...
 
 ## 分析與推論
 ### 推論一
@@ -77,7 +77,7 @@ Each analyst must use the following Markdown structure:
   "stance": "bullish|neutral|bearish",
   "confidence": "low|medium|high",
   "time_horizon": "...",
-  "evidence_ids": ["EVID-001"],
+  "evidence_ids": ["EVID-0001"],
   "upside_catalysts": [],
   "downside_risks": [],
   "evidence_gaps": []
@@ -193,7 +193,7 @@ data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 Persist one record per analyst:
 
 ```powershell
-python .\trading_debate.py record --run-id <run-id> --stage analysis --actor "Fundamentals Analyst" --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
 ```
 
 Verify that each `record` command succeeds before continuing.
@@ -204,6 +204,6 @@ Recommended idempotency key:
 run_id + stage + actor
 ```
 
-A repeated write for the same key must either replace the prior incomplete record explicitly or return a duplicate-record status without creating another logical report.
+A repeated write with identical content returns `record_status: duplicate`. To change it, use `--replace` before any debate or verdict record exists.
 
 Do not silently create duplicate analyst records.

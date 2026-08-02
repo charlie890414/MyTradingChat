@@ -37,16 +37,16 @@ Every evidence item must have a stable unique ID.
 Preferred format:
 
 ```text
-EVID-001
-EVID-002
-EVID-003
+EVID-0001
+EVID-0002
+EVID-0003
 ```
 
 Each evidence item should contain, when available:
 
 ```json
 {
-  "id": "EVID-001",
+  "id": "EVID-0001",
   "title": "NVIDIA Quarterly Results",
   "source": "NVIDIA Investor Relations",
   "source_type": "filing",
@@ -62,13 +62,13 @@ All factual claims in analyst reports, debate turns, and the Investment Committe
 Use:
 
 ```text
-[EVID-001]
+[EVID-0001]
 ```
 
 or:
 
 ```text
-[EVID-001: NVIDIA Quarterly Results]
+[EVID-0001: NVIDIA Quarterly Results]
 ```
 
 Do not rely on evidence titles alone because titles may be duplicated or ambiguous.

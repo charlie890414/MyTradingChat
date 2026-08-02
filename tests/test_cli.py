@@ -17,6 +17,52 @@ from trading_debate.cli import _MAX_WORKERS
 from .conftest import make_history, make_mock_ticker, make_yahoo_result
 
 
+def _create_record_run(db_path: Path, *, rounds: int = 1) -> None:
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("run-1", "AAPL", "Test", rounds, td.utc_now(), "active"),
+        )
+        con.execute(
+            "INSERT INTO evidence(run_id, source, title, url, published_at, payload_json, fetched_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                "Yahoo Finance",
+                "Price evidence",
+                None,
+                None,
+                "{}",
+                td.utc_now(),
+            ),
+        )
+
+
+def _record_args(db_path: Path, **overrides: object) -> MagicMock:
+    args = MagicMock()
+    args.db = db_path
+    args.run_id = "run-1"
+    args.content_file = None
+    args.content = "content"
+    args.stage = "analysis"
+    args.actor = "Fundamentals Analyst"
+    args.round = None
+    args.force = False
+    args.verdict = None
+    args.confidence = None
+    args.abstain = False
+    args.replace = False
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
+def _record_all_analyses(db_path: Path) -> None:
+    for actor in ("fundamentals", "technical", "news", "sentiment"):
+        td.cmd_record(_record_args(db_path, actor=actor, content=f"{actor} report"))
+
+
 def test_cmd_init(tmp_path: Path):
     db_path = tmp_path / "test.db"
     args = MagicMock()
@@ -982,3 +1028,144 @@ def test_cmd_search_includes_counts(tmp_path: Path, capsys):
 
 def test_max_workers_is_limited():
     assert _MAX_WORKERS <= 4
+
+
+def test_cmd_record_normalizes_actor_and_retries_idempotently(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    args = _record_args(db_path, content="same report")
+
+    td.cmd_record(args)
+    first = json.loads(capsys.readouterr().out)
+    td.cmd_record(args)
+    second = json.loads(capsys.readouterr().out)
+
+    assert first["actor"] == "fundamentals"
+    assert first["record_status"] == "created"
+    assert second["record_status"] == "duplicate"
+    with td.connect(db_path) as con:
+        rows = con.execute("SELECT actor, content FROM contributions").fetchall()
+    assert [(row["actor"], row["content"]) for row in rows] == [
+        ("fundamentals", "same report")
+    ]
+
+
+def test_cmd_record_requires_replace_and_blocks_downstream_overwrite(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    _record_all_analyses(db_path)
+    td.cmd_record(
+        _record_args(db_path, stage="debate", actor="Bull Researcher", round=1)
+    )
+    td.cmd_record(
+        _record_args(db_path, stage="debate", actor="Bear Researcher", round=1)
+    )
+
+    with pytest.raises(SystemExit, match="pass --replace"):
+        td.cmd_record(_record_args(db_path, content="changed report"))
+    with pytest.raises(SystemExit, match="downstream"):
+        td.cmd_record(_record_args(db_path, content="changed report", replace=True))
+
+
+def test_cmd_record_enforces_analysis_and_debate_order(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path, rounds=2)
+
+    with pytest.raises(SystemExit, match="Invalid actor"):
+        td.cmd_record(_record_args(db_path, actor="Bull Researcher"))
+
+    with pytest.raises(SystemExit, match="all four analyst"):
+        td.cmd_record(
+            _record_args(db_path, stage="debate", actor="Bear Researcher", round=1)
+        )
+
+    _record_all_analyses(db_path)
+    with pytest.raises(SystemExit, match="sequential"):
+        td.cmd_record(
+            _record_args(db_path, stage="debate", actor="Bear Researcher", round=1)
+        )
+    with pytest.raises(SystemExit, match="sequential"):
+        td.cmd_record(
+            _record_args(db_path, stage="debate", actor="Bull Researcher", round=2)
+        )
+
+
+def test_cmd_record_abstain_requires_explicit_valid_options(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    _record_all_analyses(db_path)
+    td.cmd_record(_record_args(db_path, stage="debate", actor="bull", round=1))
+    td.cmd_record(_record_args(db_path, stage="debate", actor="bear", round=1))
+
+    with pytest.raises(SystemExit, match="Verdict requires"):
+        td.cmd_record(_record_args(db_path, stage="verdict", actor="committee"))
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        td.cmd_record(
+            _record_args(
+                db_path,
+                stage="verdict",
+                actor="committee",
+                abstain=True,
+                confidence="low",
+            )
+        )
+
+    td.cmd_record(
+        _record_args(
+            db_path,
+            stage="verdict",
+            actor="Investment Committee",
+            abstain=True,
+            content="Evidence is insufficient.",
+        )
+    )
+    parsed = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert parsed["actor"] == "committee"
+    with td.connect(db_path) as con:
+        run = con.execute(
+            "SELECT verdict, confidence FROM runs WHERE id = 'run-1'"
+        ).fetchone()
+    assert (run["verdict"], run["confidence"]) == (None, None)
+
+    render_args = MagicMock(db=db_path, run_id="run-1", reports=tmp_path / "reports")
+    td.cmd_render(render_args)
+    rendered = json.loads(capsys.readouterr().out)
+    assert rendered["status"] == "incomplete"
+
+
+def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO evidence("
+            "run_id, source, title, url, published_at, payload_json, fetched_at, dedup_key"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                "Yahoo Finance",
+                "Fundamentals",
+                None,
+                None,
+                "{}",
+                td.utc_now(),
+                "fundamentals",
+            ),
+        )
+    _record_all_analyses(db_path)
+    td.cmd_record(_record_args(db_path, stage="debate", actor="bull", round=1))
+    td.cmd_record(_record_args(db_path, stage="debate", actor="bear", round=1))
+    td.cmd_record(
+        _record_args(
+            db_path,
+            stage="verdict",
+            actor="committee",
+            verdict="hold",
+            confidence="medium",
+        )
+    )
+
+    render_args = MagicMock(db=db_path, run_id="run-1", reports=tmp_path / "reports")
+    td.cmd_render(render_args)
+    rendered = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert rendered["status"] == "completed"

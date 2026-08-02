@@ -11,11 +11,59 @@ from .utils import as_json, utc_now
 
 RUN_STATUSES = frozenset({"active", "incomplete", "completed", "failed"})
 RATINGS = frozenset({"buy", "hold", "reduce"})
+CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
+_SCHEMA_VERSION = 1
+
+_ACTOR_ALIASES = {
+    "analysis": {
+        "fundamentals": "fundamentals",
+        "fundamentals analyst": "fundamentals",
+        "technical": "technical",
+        "technical analyst": "technical",
+        "news": "news",
+        "news analyst": "news",
+        "news & events analyst": "news",
+        "news and events analyst": "news",
+        "news-events": "news",
+        "sentiment": "sentiment",
+        "sentiment analyst": "sentiment",
+    },
+    "debate": {
+        "bull": "bull",
+        "bull researcher": "bull",
+        "bear": "bear",
+        "bear researcher": "bear",
+    },
+    "verdict": {
+        "committee": "committee",
+        "investment committee": "committee",
+    },
+}
+
+
+class MigrationError(RuntimeError):
+    """Raised when legacy contribution data cannot be migrated safely."""
+
+
+def normalize_contribution_actor(stage: str, actor: str) -> str:
+    """Return the canonical actor for a workflow stage.
+
+    Display names remain accepted at the CLI boundary so existing agent skills can
+    retry safely, while the database stores one stable value per logical role.
+    """
+    normalized = " ".join(actor.strip().lower().split())
+    canonical = _ACTOR_ALIASES.get(stage, {}).get(normalized)
+    if not canonical:
+        allowed = ", ".join(sorted(set(_ACTOR_ALIASES.get(stage, {}).values())))
+        raise ValueError(
+            f"Invalid actor {actor!r} for {stage}; expected one of: {allowed}"
+        )
+    return canonical
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(db_path)
+    con = sqlite3.connect(db_path, timeout=30)
     con.row_factory = sqlite3.Row
     con.executescript(
         """
@@ -52,7 +100,65 @@ def connect(db_path: Path) -> sqlite3.Connection:
           ON contributions(run_id, id);
         """
     )
+    _migrate_contributions(con)
     return con
+
+
+def _migrate_contributions(con: sqlite3.Connection) -> None:
+    """Canonicalize legacy actors and add a unique logical contribution key."""
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    if version >= _SCHEMA_VERSION:
+        return
+
+    rows = con.execute(
+        "SELECT id, run_id, stage, actor, round_no, content "
+        "FROM contributions ORDER BY id"
+    ).fetchall()
+    normalized: dict[int, str] = {}
+    grouped: dict[tuple[str, str, str, int], list[sqlite3.Row]] = {}
+    for row in rows:
+        try:
+            actor = normalize_contribution_actor(row["stage"], row["actor"])
+        except ValueError:
+            actor = row["actor"]
+        normalized[row["id"]] = actor
+        key = (row["run_id"], row["stage"], actor, row["round_no"] or 0)
+        grouped.setdefault(key, []).append(row)
+
+    conflicts = sorted(
+        {
+            key[0]
+            for key, duplicates in grouped.items()
+            if len(duplicates) > 1 and len({row["content"] for row in duplicates}) > 1
+        }
+    )
+    if conflicts:
+        run_ids = ", ".join(conflicts)
+        raise MigrationError(
+            f"Cannot migrate conflicting duplicate contributions for run IDs: {run_ids}"
+        )
+
+    duplicate_ids = [
+        row["id"]
+        for duplicates in grouped.values()
+        if len(duplicates) > 1
+        for row in duplicates[:-1]
+    ]
+    with con:
+        for row_id, actor in normalized.items():
+            con.execute(
+                "UPDATE contributions SET actor = ? WHERE id = ?", (actor, row_id)
+            )
+        if duplicate_ids:
+            con.executemany(
+                "DELETE FROM contributions WHERE id = ?",
+                [(row_id,) for row_id in duplicate_ids],
+            )
+        con.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_contributions_logical "
+            "ON contributions(run_id, stage, actor, IFNULL(round_no, 0))"
+        )
+        con.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
 
 def evidence_reference(evidence_id: int) -> str:

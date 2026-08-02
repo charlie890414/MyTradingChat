@@ -164,11 +164,13 @@ python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor co
 python -m trading_debate.cli render --run-id <run-id> --reports reports
 ```
 
-`--verdict` and `--confidence` are required for the verdict stage. Without them, `render` will mark the run as `incomplete` because the rating is not written to the runs table.
+The verdict stage requires either `--verdict <buy|hold|reduce>` with `--confidence <low|medium|high>`, or `--abstain`. An abstention keeps `verdict` null and `render` marks the run as `incomplete` while preserving the Committee explanation.
 
-`render` writes `<run-id>.md` into `--reports` (default `reports/`) combining the evidence pack, analyst reports, debate turns, and verdict.
+`render` writes `reports/<YYYY-MM-DD>/<SYMBOL>/report.md` combining the evidence pack, analyst reports, debate turns, and verdict.
 
 Confirm every `record` echoed the expected run-id. If any echoed run-id differs, stop and investigate instead of rendering a run that is missing required parts.
+
+Each persisted role has one logical record: analysis uses `run_id + stage + actor`, debate additionally includes `round`, and verdict uses the Committee role. Re-sending identical content returns `record_status: duplicate`. A changed contribution requires `--replace` and is rejected if downstream turns, a verdict, or a rendered report depend on it.
 
 ### 7. Return result
 

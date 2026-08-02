@@ -2,15 +2,6 @@
 
 from __future__ import annotations
 
-from .cli import (
-    cmd_context,
-    cmd_fetch,
-    cmd_init,
-    cmd_purge,
-    cmd_record,
-    cmd_runs,
-    cmd_search,
-)
 from .connectors import CONNECTORS, fetch_yahoo
 from .connectors.technicals import compute_technicals, history_to_records
 from .db import (
@@ -71,6 +62,24 @@ __all__ = [
     "utc_now",
     "serve",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose CLI commands without importing the CLI during package load."""
+    if name in {
+        "cmd_context",
+        "cmd_fetch",
+        "cmd_init",
+        "cmd_purge",
+        "cmd_record",
+        "cmd_runs",
+        "cmd_search",
+    }:
+        from . import cli
+
+        return getattr(cli, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Import render here to keep the original public API intact without a circular import.
 from .render import cmd_render, render_evidence  # noqa: E402

@@ -29,6 +29,39 @@ For US tickers, the SEC EDGAR connector also parses non-derivative Form 4
 filings into individual insider transactions.  The output retains the filing
 links and records any document-level retrieval failures as evidence gaps.
 
+## CLI workflow
+
+Create a run, fetch its evidence pack, and inspect the JSON context before any
+agent writes a contribution:
+
+```powershell
+$run = trading-debate init --symbol NVDA --question "分析 NVDA 的多空觀點" --rounds 3 | ConvertFrom-Json
+trading-debate fetch --run-id $run.run_id
+trading-debate context --run-id $run.run_id
+```
+
+Use canonical roles when persisting work. Display names such as
+`"Fundamentals Analyst"`, `"Bull Researcher"`, and `"Investment Committee"`
+are accepted for compatibility, but are stored as canonical roles.
+
+```powershell
+trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md
+trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md
+trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md
+trading-debate record --run-id $run.run_id --stage analysis --actor sentiment --content-file sentiment.md
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull --content-file bull-round-1.md
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-file bear-round-1.md
+trading-debate record --run-id $run.run_id --stage verdict --actor committee --verdict hold --confidence medium --content-file committee.md
+trading-debate render --run-id $run.run_id
+trading-debate search --query NVDA
+```
+
+Each role and debate turn has one logical record. Re-sending identical content
+returns a `duplicate` status without adding a row. To change an existing record,
+pass `--replace`; replacement is refused once a downstream debate, verdict, or
+rendered report depends on it. A committee that cannot rate the evidence must
+explicitly use `--abstain` instead of omitting verdict arguments.
+
 ## Local historical research UI
 
 Start the local UI after creating research runs:

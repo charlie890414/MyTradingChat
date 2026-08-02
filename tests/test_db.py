@@ -6,7 +6,10 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 import trading_debate as td
+from trading_debate.db import MigrationError
 from trading_debate.models import EvidenceItem
 
 
@@ -138,4 +141,69 @@ def test_connector_status_records_error(tmp_path: Path):
     payload = json.loads(rows[0]["payload_json"])
     assert payload["state"] == "error"
     assert payload["detail"] == "Rate limited"
+    con.close()
+
+
+def test_contribution_migration_normalizes_and_deduplicates(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    with td.connect(db_path) as con:
+        con.execute("DROP INDEX ux_contributions_logical")
+        con.execute("PRAGMA user_version = 0")
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("run-1", "AAPL", "Test", 1, td.utc_now(), "active"),
+        )
+        for actor, content in (
+            ("News & Events Analyst", "news report"),
+            ("Investment Committee", "same verdict"),
+            ("committee", "same verdict"),
+        ):
+            con.execute(
+                "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    "run-1",
+                    "analysis" if "Analyst" in actor else "verdict",
+                    actor,
+                    None,
+                    content,
+                    td.utc_now(),
+                ),
+            )
+
+    with td.connect(db_path) as con:
+        rows = con.execute(
+            "SELECT stage, actor, content FROM contributions ORDER BY id"
+        ).fetchall()
+        version = con.execute("PRAGMA user_version").fetchone()[0]
+    assert [(row["stage"], row["actor"], row["content"]) for row in rows] == [
+        ("analysis", "news", "news report"),
+        ("verdict", "committee", "same verdict"),
+    ]
+    assert version == 1
+
+
+def test_contribution_migration_rejects_conflicting_duplicates(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    with td.connect(db_path) as con:
+        con.execute("DROP INDEX ux_contributions_logical")
+        con.execute("PRAGMA user_version = 0")
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("run-conflict", "AAPL", "Test", 1, td.utc_now(), "active"),
+        )
+        for content in ("first verdict", "different verdict"):
+            con.execute(
+                "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("run-conflict", "verdict", "committee", None, content, td.utc_now()),
+            )
+
+    with pytest.raises(MigrationError, match="run-conflict"):
+        td.connect(db_path)
+
+    con = sqlite3.connect(db_path)
+    assert con.execute("SELECT COUNT(*) FROM contributions").fetchone()[0] == 2
     con.close()

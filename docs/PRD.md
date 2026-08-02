@@ -215,6 +215,8 @@ Requirements:
 3. Each report must be persisted to SQLite `contributions`.
 4. Each report must use stage `analysis`.
 5. Agents must not fabricate financial metrics, technical levels, events, or dates when evidence is insufficient.
+6. Analysis actors must persist as `fundamentals`, `technical`, `news`, or `sentiment`; legacy display names may be accepted at the input boundary.
+7. A repeated write for the same run, stage, and actor must return a duplicate result for identical content, not create another logical report.
 
 ### 7.7 Bull And Bear Debate
 
@@ -226,6 +228,7 @@ Requirements:
 4. Full debate turns must be preserved, not replaced by summaries.
 5. Each debate contribution must include `round_no`.
 6. Debate turns should separate facts, inference, evidence gaps, thesis updates, and conviction changes.
+7. Debate may begin only after the four analyst reports exist, and turns must persist in Bull-then-Bear order for each sequential round.
 
 ### 7.8 Investment Committee Verdict
 
@@ -236,6 +239,7 @@ Requirements:
 3. The only allowed research ratings are `buy`, `hold`, and `reduce`.
 4. If core evidence is insufficient, the committee must abstain from a current-market rating.
 5. The verdict should include key reasons, major risks, invalidation conditions, and data limitations.
+6. Persisting a verdict requires either a rating with `low`, `medium`, or `high` confidence, or an explicit abstention; abstention is stored as a null rating.
 
 ### 7.9 Report Rendering
 
@@ -417,9 +421,6 @@ Final Agent workflow responses should be in Traditional Chinese.
 
 ## 13. Follow-Up Recommendations
 
-1. Expand `README.md` with complete CLI examples and sample report output.
-2. Define stable evidence ID generation in the CLI or Agent workflow.
-3. Add explicit run statuses such as `active`, `incomplete`, `completed`, and `failed`.
-4. Persist verdict and confidence into the existing `runs.verdict` and `runs.confidence` fields.
-5. Keep documentation aligned around `Agents`, `Agent workflow`, `controller agent`, and `multi-agent workflow` terminology.
-6. Decide whether the local web UI should support authentication or be exposed beyond a single local user.
+1. Keep README and the Agent workflow examples synchronized with the canonical CLI actor names and `EVID-0001` evidence references.
+2. Preserve idempotent contribution keys and safe replacement guards as new workflow stages are added.
+3. Decide whether the local web UI should support authentication or be exposed beyond a single local user.
