@@ -148,3 +148,35 @@ def history_to_records(history: pd.DataFrame) -> list[dict[str, Any]]:
                 row[col.lower()] = None if pd.isna(value) else float(value)
         records.append(row)
     return records
+
+
+def resample_ohlcv(history: pd.DataFrame, frequency: str) -> pd.DataFrame:
+    """Resample daily OHLCV bars into weekly or monthly bars.
+
+    The input is expected to use adjusted prices when corporate-action-adjusted
+    analysis is requested.  Volume is summed while prices retain standard OHLC
+    semantics.
+    """
+    if history is None or history.empty:
+        return pd.DataFrame()
+
+    columns = [
+        column
+        for column in ("Open", "High", "Low", "Close", "Volume")
+        if column in history
+    ]
+    if not columns:
+        return pd.DataFrame()
+    aggregations = {
+        "Open": "first",
+        "High": "max",
+        "Low": "min",
+        "Close": "last",
+        "Volume": "sum",
+    }
+    return (
+        history[columns]
+        .resample(frequency)
+        .agg({column: aggregations[column] for column in columns})
+        .dropna(subset=["Close"] if "Close" in columns else None)
+    )

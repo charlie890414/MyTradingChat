@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from xml.etree import ElementTree
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
-from ..utils import request_json
+from ..utils import request_json, request_text
 
 _COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
@@ -128,6 +129,47 @@ def _financial_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
     return snapshot
 
 
+def _xml_value(element: ElementTree.Element, path: str) -> str | None:
+    value = element.findtext(path)
+    return value.strip() if value else None
+
+
+def _form4_transactions(xml_text: str) -> list[dict[str, Any]]:
+    """Extract non-derivative Form 4 transactions from the SEC XML document."""
+    root = ElementTree.fromstring(xml_text)
+    owner = _xml_value(root, ".//reportingOwner/reportingOwnerId/rptOwnerName")
+    transactions: list[dict[str, Any]] = []
+    for transaction in root.findall(".//nonDerivativeTransaction"):
+        acquired_disposed = _xml_value(
+            transaction, "transactionAmounts/transactionAcquiredDisposedCode/value"
+        )
+        shares = _xml_value(transaction, "transactionAmounts/transactionShares/value")
+        price = _xml_value(
+            transaction, "transactionAmounts/transactionPricePerShare/value"
+        )
+        row = {
+            "owner": owner,
+            "security_title": _xml_value(transaction, "securityTitle/value"),
+            "transaction_date": _xml_value(transaction, "transactionDate/value"),
+            "transaction_code": _xml_value(
+                transaction, "transactionCoding/transactionCode"
+            ),
+            "acquired_disposed": acquired_disposed,
+            "shares": shares,
+            "price_per_share": price,
+            "shares_owned_after": _xml_value(
+                transaction,
+                "postTransactionAmounts/sharesOwnedFollowingTransaction/value",
+            ),
+            "ownership_type": _xml_value(
+                transaction, "ownershipNature/directOrIndirectOwnership/value"
+            ),
+        }
+        if any(row.values()):
+            transactions.append(row)
+    return transactions
+
+
 def fetch_sec(
     run_id: str, symbol: str, limit: int, *, company_name: str | None = None
 ) -> list[EvidenceItem]:
@@ -190,12 +232,29 @@ def fetch_sec(
             )
         form4_rows = _recent_filings(submissions, {"4"}, limit)
         if form4_rows:
+            transactions: list[dict[str, Any]] = []
+            fetch_errors: list[str] = []
+            for filing in form4_rows:
+                url = filing.get("url")
+                if not url:
+                    continue
+                try:
+                    transactions.extend(
+                        _form4_transactions(request_text(url, _headers()))
+                    )
+                except Exception as exc:
+                    fetch_errors.append(f"{filing.get('accessionNumber')}: {exc}")
             items.append(
                 EvidenceItem(
                     run_id=run_id,
                     source="SEC EDGAR Form 4",
-                    title="Recent insider transaction filings",
-                    payload={"cik": cik, "filings": form4_rows},
+                    title="Recent insider transactions",
+                    payload={
+                        "cik": cik,
+                        "filings": form4_rows,
+                        "transactions": transactions,
+                        "transaction_fetch_errors": fetch_errors,
+                    },
                     url=_SUBMISSIONS_URL.format(cik=cik),
                     published_at=form4_rows[0].get("filingDate"),
                 )

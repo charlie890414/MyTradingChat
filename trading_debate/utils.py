@@ -19,6 +19,7 @@ __all__ = [
     "date_range_days",
     "load_dotenv",
     "request_json",
+    "request_text",
     "utc_now",
 ]
 
@@ -80,6 +81,28 @@ def request_json(
             OSError,
             json.JSONDecodeError,
         ) as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                time.sleep(backoff * (2**attempt))
+    raise RequestError(f"Failed to fetch {url}: {last_exc}") from last_exc
+
+
+def request_text(
+    url: str,
+    headers: dict[str, str] | None = None,
+    *,
+    timeout: float = 20.0,
+    max_retries: int = 3,
+    backoff: float = 1.0,
+) -> str:
+    """Fetch text from a fixed trusted HTTPS endpoint with retry handling."""
+    request = Request(url, headers={"User-Agent": _USER_AGENT, **(headers or {})})
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            with urlopen(request, timeout=timeout) as response:  # nosec B310: SEC URL
+                return response.read().decode("utf-8")
+        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError) as exc:
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(backoff * (2**attempt))

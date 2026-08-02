@@ -9,7 +9,7 @@ import yfinance
 
 from ..models import EvidenceItem, YahooFetchResult
 from ..symbols import normalize_symbol
-from .technicals import _series, compute_technicals, history_to_records
+from .technicals import _series, compute_technicals, history_to_records, resample_ohlcv
 
 
 def scalar(value: Any) -> Any:
@@ -35,7 +35,7 @@ def fetch_yahoo(
     end = datetime.now(UTC).date()
     start = end - timedelta(days=365)
     info = ticker.get_info()
-    history = ticker.history(start=start, end=end, auto_adjust=False)
+    history = ticker.history(start=start, end=end, interval="1d", auto_adjust=True)
     news = ticker.get_news(count=news_limit, tab="news")
     fields = [
         "shortName",
@@ -74,6 +74,8 @@ def fetch_yahoo(
     }
     technicals = compute_technicals(history)
     daily_history = history_to_records(history)
+    weekly_history = history_to_records(resample_ohlcv(history, "W-FRI"))
+    monthly_history = history_to_records(resample_ohlcv(history, "ME"))
 
     items: list[EvidenceItem] = [
         EvidenceItem(
@@ -100,7 +102,36 @@ def fetch_yahoo(
             run_id=run_id,
             source="Yahoo Finance",
             title="Daily OHLCV history",
-            payload={"bars": len(daily_history), "records": daily_history},
+            payload={
+                "bars": len(daily_history),
+                "price_adjustment": (
+                    "Yahoo Finance auto_adjust=True; prices are adjusted for "
+                    "splits and dividends."
+                ),
+                "records": daily_history,
+            },
+            published_at=price["as_of"],
+        ),
+        EvidenceItem(
+            run_id=run_id,
+            source="Yahoo Finance",
+            title="Weekly adjusted OHLCV history",
+            payload={
+                "bars": len(weekly_history),
+                "frequency": "W-FRI",
+                "records": weekly_history,
+            },
+            published_at=price["as_of"],
+        ),
+        EvidenceItem(
+            run_id=run_id,
+            source="Yahoo Finance",
+            title="Monthly adjusted OHLCV history",
+            payload={
+                "bars": len(monthly_history),
+                "frequency": "ME",
+                "records": monthly_history,
+            },
             published_at=price["as_of"],
         ),
     ]

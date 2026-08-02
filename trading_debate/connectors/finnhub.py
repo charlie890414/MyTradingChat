@@ -93,6 +93,39 @@ def fetch_finnhub(
     except Exception as exc:
         result.append(_status(run_id, "error", f"Earnings failed: {exc}"))
 
+    estimate_endpoints = (
+        (
+            "stock/recommendation",
+            "Finnhub Recommendation Trends",
+            "Analyst recommendation trend",
+        ),
+        ("price-target", "Finnhub Price Targets", "Analyst price target summary"),
+        ("stock/eps-estimate", "Finnhub EPS Estimates", "Analyst EPS estimates"),
+        (
+            "stock/revenue-estimate",
+            "Finnhub Revenue Estimates",
+            "Analyst revenue estimates",
+        ),
+    )
+    for endpoint, source, title in estimate_endpoints:
+        try:
+            payload = _request_finnhub(endpoint, {"symbol": symbol, "token": key})
+            if isinstance(payload, dict) and payload.get("error"):
+                raise RuntimeError(payload["error"])
+            if not payload:
+                result.append(_status(run_id, "empty", f"{title} returned no data."))
+                continue
+            result.append(
+                EvidenceItem(
+                    run_id=run_id,
+                    source=source,
+                    title=title,
+                    payload={"symbol": symbol, "data": payload},
+                )
+            )
+        except Exception as exc:
+            result.append(_status(run_id, "error", f"{title} failed: {exc}"))
+
     try:
         reported = _request_finnhub(
             "stock/financials-reported",

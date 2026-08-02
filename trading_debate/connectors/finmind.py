@@ -77,6 +77,116 @@ def _fetch_dataset(
     )
 
 
+def _latest_period_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Return every row in the newest reporting period, not just the final row."""
+    dates = [str(row.get("date", "")) for row in rows if row.get("date")]
+    if not dates:
+        return None, []
+    latest_date = max(dates)
+    return latest_date, [row for row in rows if str(row.get("date", "")) == latest_date]
+
+
+def _number(value: Any) -> float | None:
+    """Return a numeric value when a FinMind field can be safely aggregated."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _institutional_trend(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize the latest five trading days without inferring a signal."""
+    dates = sorted({str(row.get("date")) for row in rows if row.get("date")})[-5:]
+    by_investor: dict[str, dict[str, float]] = {}
+    for row in rows:
+        if str(row.get("date")) not in dates:
+            continue
+        name = str(row.get("name") or "Unknown investor")
+        summary = by_investor.setdefault(name, {"buy": 0.0, "sell": 0.0})
+        summary["buy"] += _number(row.get("buy")) or 0.0
+        summary["sell"] += _number(row.get("sell")) or 0.0
+    investors = [
+        {"name": name, **values, "net_buy_sell": values["buy"] - values["sell"]}
+        for name, values in sorted(by_investor.items())
+    ]
+    return {"trading_dates": dates, "investors": investors}
+
+
+def _margin_trend(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Expose recent margin fields and changes without assuming their meaning."""
+    recent_rows = sorted(rows, key=lambda row: str(row.get("date") or ""))[-5:]
+    if len(recent_rows) < 2:
+        return {"recent_rows": recent_rows, "field_changes": {}}
+    first, latest = recent_rows[0], recent_rows[-1]
+    changes: dict[str, float] = {}
+    for key, latest_value in latest.items():
+        first_value = _number(first.get(key))
+        latest_number = _number(latest_value)
+        if first_value is not None and latest_number is not None:
+            changes[key] = latest_number - first_value
+    return {
+        "trading_dates": [str(row.get("date") or "") for row in recent_rows],
+        "recent_rows": recent_rows,
+        "field_changes": changes,
+    }
+
+
+def _summary_item(
+    run_id: str,
+    dataset: str,
+    config: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> EvidenceItem | None:
+    """Create compact, directly citable snapshots for key Taiwan datasets."""
+    if dataset not in {
+        "TaiwanStockFinancialStatements",
+        "TaiwanStockBalanceSheet",
+        "TaiwanStockCashFlowsStatement",
+        "TaiwanStockInstitutionalInvestorsBuySell",
+        "TaiwanStockMarginPurchaseShortSale",
+    }:
+        return None
+
+    latest_date, latest_rows = _latest_period_rows(rows)
+    if not latest_rows:
+        return None
+    payload: dict[str, Any] = {
+        "dataset": dataset,
+        "latest_date": latest_date,
+        "latest_period_rows": latest_rows,
+        "available_rows": len(rows),
+    }
+    if dataset in {
+        "TaiwanStockInstitutionalInvestorsBuySell",
+        "TaiwanStockMarginPurchaseShortSale",
+    }:
+        payload["recent_dates"] = sorted({str(row.get("date")) for row in rows})[-20:]
+    if dataset == "TaiwanStockInstitutionalInvestorsBuySell":
+        payload["five_day_trend"] = _institutional_trend(rows)
+    if dataset == "TaiwanStockMarginPurchaseShortSale":
+        payload["five_day_trend"] = _margin_trend(rows)
+
+    titles = {
+        "TaiwanStockFinancialStatements": "Latest consolidated income statement",
+        "TaiwanStockBalanceSheet": "Latest consolidated balance sheet",
+        "TaiwanStockCashFlowsStatement": "Latest consolidated cash flow statement",
+        "TaiwanStockInstitutionalInvestorsBuySell": (
+            "Latest institutional investor buy/sell"
+        ),
+        "TaiwanStockMarginPurchaseShortSale": "Latest margin purchase and short sale",
+    }
+    return EvidenceItem(
+        run_id=run_id,
+        source=str(config["source"]),
+        title=titles[dataset],
+        payload=payload,
+        published_at=latest_date,
+    )
+
+
 def fetch_finmind(
     run_id: str, symbol: str, limit: int, *, company_name: str | None = None
 ) -> list[EvidenceItem]:
@@ -115,6 +225,10 @@ def fetch_finmind(
         if not rows:
             result.append(_status(run_id, "empty", f"{dataset} returned no rows."))
             continue
+
+        summary = _summary_item(run_id, dataset, config, rows)
+        if summary:
+            result.append(summary)
 
         source = str(config["source"])
         for row in rows[-limit:]:

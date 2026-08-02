@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 import trading_debate as td
+from trading_debate.connectors.technicals import resample_ohlcv
 
 from .conftest import make_history
 
@@ -66,3 +67,11 @@ def test_history_to_records_round_trips():
         assert "date" in record
         for col in ("open", "high", "low", "close", "volume"):
             assert col in record
+
+
+def test_resample_ohlcv_returns_weekly_bars():
+    history = make_history(10)
+    weekly = resample_ohlcv(history, "W-FRI")
+    assert not weekly.empty
+    assert weekly["Open"].iloc[0] == history["Open"].iloc[0]
+    assert weekly["Volume"].sum() == history["Volume"].sum()

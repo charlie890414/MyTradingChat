@@ -19,6 +19,16 @@ $env:FINNHUB_API_KEY = "..."
 $env:FINMIND_TOKEN = "..."
 ```
 
+`FINNHUB_API_KEY` can use Finnhub's free developer tier.  When available, the
+evidence pack includes analyst recommendation history, price-target summaries,
+and EPS/revenue estimates in addition to company news, reported financials, and
+historical earnings surprises.  Provider-plan restrictions and empty responses
+are recorded as evidence gaps, never as investment evidence.
+
+For US tickers, the SEC EDGAR connector also parses non-derivative Form 4
+filings into individual insider transactions.  The output retains the filing
+links and records any document-level retrieval failures as evidence gaps.
+
 ## Local historical research UI
 
 Start the local UI after creating research runs:
