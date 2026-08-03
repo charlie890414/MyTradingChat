@@ -99,6 +99,13 @@ python -m trading_debate.cli context --run-id <run-id>
 
 The shared evidence pack must include run ID, symbol, user question, fetch timestamp, source metadata, evidence items, connector availability metadata, and known data gaps. It becomes the source of record for all subsequent stages.
 
+When a news evidence item contains a URL, agents may use available read-only web,
+browser, or connector tools to open the linked article and retrieve its body text.
+Treat this as enrichment of the existing evidence item, cite the same evidence ID,
+and keep the article URL and publication metadata traceable. Never claim to have
+read the full article when only a headline, snippet, abstract, or blocked page was
+available.
+
 ### 4. Run analyst stage
 
 Execute the analysis sub-skill (`trading-debate-analysis`). Spawn four independent subagents in parallel:

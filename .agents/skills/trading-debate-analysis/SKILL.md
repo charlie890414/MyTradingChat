@@ -150,6 +150,15 @@ Do not infer institutional accumulation, distribution, manipulation, or insider 
 
 The News & Events Analyst must:
 
+- Use available read-only web, browser, or connector tools to retrieve the body
+  text of linked news evidence when article-level detail would materially affect
+  the analysis.
+- Cite the existing evidence ID for facts found in the matching article body and
+  note the canonical publisher URL when it differs from the evidence item URL.
+- State whether each material news item was assessed from a full article body,
+  an official release, an abstract, a snippet, or a headline only.
+- Never describe a paywalled, blocked, truncated, or snippet-only page as a fully
+  read article, and never fill missing details by inference.
 - Distinguish event date from article publication date.
 - Distinguish company-confirmed events from media reports.
 - Identify whether a catalyst is completed, pending, recurring, speculative, or cancelled.
