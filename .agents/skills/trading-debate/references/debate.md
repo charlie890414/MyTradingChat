@@ -1,9 +1,11 @@
----
-name: trading-debate-debate
-description: Bull vs Bear multi-round debate stage for the trading-debate skill. Spawns Bull Researcher and Bear Researcher, manages turn order, direct rebuttal rules, thesis updates, conviction changes, and persists each turn.
----
-
 # Debate Stage
+
+## Contents
+
+- [Subagent run ownership](#subagent-run-ownership)
+- [Debate rules](#debate-rules)
+- [Debate order](#debate-order)
+- [Compact debate state](#compact-debate-state)
 
 After all available analyst reports are persisted, spawn two subagents:
 
@@ -19,9 +21,9 @@ Give both researchers:
 
 All debate turns must be written in Traditional Chinese.
 
-## Run ownership
+## Subagent run ownership
 
-You are a subagent. You do not own the research run.
+When applying these rules as a subagent, do not assume ownership of the research run.
 
 - Use only the run-id provided in the shared evidence pack for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.

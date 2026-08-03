@@ -1,15 +1,23 @@
----
-name: trading-debate-evidence
-description: Evidence retrieval, validation, and safety rules for the trading-debate skill. Covers the shared evidence pack, evidence IDs, source limitations, connector status interpretation, data gaps, prompt injection protection, and the prohibition on fabricating data.
----
-
 # Evidence Rules
 
-This sub-skill defines the shared evidence pack and all rules that apply to evidence retrieval, citation, source handling, data gaps, and prompt injection protection. Every analyst, debater, and committee member must follow these rules.
+## Contents
 
-## Run ownership
+- [Subagent run ownership](#subagent-run-ownership)
+- [Shared evidence pack](#shared-evidence-pack)
+- [Evidence item format](#evidence-item-format)
+- [Source handling](#source-handling)
+- [Connector status](#connector-status)
+- [Old reports as historical context only](#old-reports-as-historical-context-only)
+- [Evidence fetch time](#evidence-fetch-time)
+- [Prompt injection protection](#prompt-injection-protection)
+- [Prohibition on fabricating evidence](#prohibition-on-fabricating-evidence)
+- [Evidence quality framework](#evidence-quality-framework)
 
-You are a subagent. You do not own the research run.
+Use this reference as the shared source for evidence retrieval, citation, source handling, data gaps, and prompt injection protection. Require every analyst, debater, and committee member to follow these rules.
+
+## Subagent run ownership
+
+When applying these rules as a subagent, do not assume ownership of the research run.
 
 - Use only the run-id provided in the shared evidence pack for every read and write.
 - Never invoke `init`, `fetch`, or `render`.

@@ -1,13 +1,16 @@
----
-name: trading-debate-verdict
-description: Investment Committee and final report stage for the trading-debate skill. Aggregates analyst and debate outputs, produces a buy/hold/reduce research rating, renders the final report, and returns a compact chat summary.
----
-
 # Verdict Stage
 
-## Run ownership
+## Contents
 
-You are a subagent. You do not own the research run.
+- [Subagent run ownership](#subagent-run-ownership)
+- [Investment Committee](#investment-committee)
+- [Research rating definitions](#research-rating-definitions)
+- [Required Investment Committee output](#required-investment-committee-output)
+- [Persist verdict](#persist-verdict)
+
+## Subagent run ownership
+
+When applying these rules as a subagent, do not assume ownership of the research run.
 
 - Use only the run-id provided in the shared evidence pack for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.

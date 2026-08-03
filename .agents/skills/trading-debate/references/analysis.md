@@ -1,9 +1,14 @@
----
-name: trading-debate-analysis
-description: Four-analyst stage for the trading-debate skill. Spawns Fundamentals Analyst, Technical Analyst, News & Events Analyst, and Sentiment Analyst in parallel, each using the shared evidence pack, and persists their reports to staging.
----
-
 # Analyst Stage
+
+## Contents
+
+- [Subagent run ownership](#subagent-run-ownership)
+- [Common report requirements](#common-report-requirements)
+- [Fundamentals Analyst](#fundamentals-analyst)
+- [Technical Analyst](#technical-analyst)
+- [News & Events Analyst](#news--events-analyst)
+- [Sentiment Analyst](#sentiment-analyst)
+- [Persist analyst reports](#persist-analyst-reports)
 
 Spawn four independent subagents in parallel:
 
@@ -14,9 +19,9 @@ Spawn four independent subagents in parallel:
 
 Each analyst receives the same JSON evidence pack. Do not provide one analyst's conclusions to another analyst during this stage.
 
-## Run ownership
+## Subagent run ownership
 
-You are a subagent. You do not own the research run.
+When applying these rules as a subagent, do not assume ownership of the research run.
 
 - Use only the run-id provided in the evidence pack for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.

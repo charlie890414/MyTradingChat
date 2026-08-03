@@ -5,7 +5,7 @@ description: Run an evidence-grounded, persistent multi-agent equity research de
 
 # Trading Debate
 
-Orchestrates a multi-stage equity research debate for Taiwan- or US-listed equities. Delegates detailed rules to sub-skills: `trading-debate-evidence`, `trading-debate-analysis`, `trading-debate-debate`, and `trading-debate-verdict`.
+Orchestrate a multi-stage equity research debate for Taiwan- or US-listed equities. Keep this file as the workflow entry point and load detailed stage rules from `references/` only when each stage begins.
 
 ## Global constraints
 
@@ -80,7 +80,9 @@ Debate rounds default to 3 and must be at least 1. The CLI rejects `--rounds` va
 
 ### 3. Fetch evidence
 
-Execute the evidence sub-skill (`trading-debate-evidence`), which covers:
+Before fetching evidence, read [`references/evidence.md`](references/evidence.md) completely. Its evidence, citation, source-safety, and anti-fabrication rules are mandatory for the rest of the run. Include the applicable rules in every downstream subagent prompt.
+
+The reference covers:
 
 - Fetching the shared evidence pack
 - Evidence item format and stable IDs
@@ -108,7 +110,7 @@ available.
 
 ### 4. Run analyst stage
 
-Execute the analysis sub-skill (`trading-debate-analysis`). Spawn four independent subagents in parallel:
+Before spawning analysts, read [`references/analysis.md`](references/analysis.md) completely. Then spawn four independent subagents in parallel:
 
 1. Fundamentals Analyst
 2. Technical Analyst
@@ -117,7 +119,7 @@ Execute the analysis sub-skill (`trading-debate-analysis`). Spawn four independe
 
 Each receives the same JSON evidence pack. Do not provide one analyst's conclusions to another during this stage.
 
-The sub-skill covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md`), and idempotency keys.
+The reference covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md`), and idempotency keys. Give each analyst the shared evidence pack, the applicable role section, the common report requirements, and the mandatory evidence rules.
 
 Persist each analyst report as it is produced:
 
@@ -134,7 +136,7 @@ After each `record`, confirm the echoed `run_id` equals the expected run-id. If 
 
 ### 5. Run debate stage
 
-Execute the debate sub-skill (`trading-debate-debate`). Spawn Bull Researcher and Bear Researcher.
+Before starting debate, read [`references/debate.md`](references/debate.md) completely. Then spawn Bull Researcher and Bear Researcher, giving both the shared evidence pack, analyst reports, debate rules, and mandatory evidence rules.
 
 For each round:
 
@@ -143,7 +145,7 @@ For each round:
 3. Update the compact debate state.
 4. Persist both turns with `--stage debate --round <N>`.
 
-The sub-skill covers rebuttal rules (name opposing claim, quote, cite evidence IDs, identify gaps, separate fact from inference, update thesis, state conviction change), debate output format, compact debate state structure, and full history preservation.
+The reference covers rebuttal rules (name opposing claim, quote, cite evidence IDs, identify gaps, separate fact from inference, update thesis, state conviction change), debate output format, compact debate state structure, and full history preservation.
 
 Persist each turn immediately after the rebuttal, before the next turn begins:
 
@@ -158,11 +160,11 @@ After persisting each round, confirm both echoed `run_id` values equal the expec
 
 ### 6. Run verdict stage
 
-Execute the verdict sub-skill (`trading-debate-verdict`). Spawn the Investment Committee subagent with all prior reports and the evidence pack.
+Before producing a verdict, read [`references/verdict.md`](references/verdict.md) completely. Then spawn the Investment Committee subagent with all prior reports, every debate turn, the compact debate state, the shared evidence pack, the verdict rules, and the mandatory evidence rules.
 
 The Committee resolves conflicts by evidence quality, not majority vote. It must not simply count bullish and bearish agents.
 
-The sub-skill covers the required output format, research rating definitions, invalidation conditions, persistence via `--stage verdict`, the render command, and the final chat response format.
+The reference covers the required output format, research rating definitions, invalidation conditions, persistence via `--stage verdict`, the render command, and the final chat response format.
 
 Persist the Committee report and render the final Markdown:
 
@@ -226,14 +228,16 @@ If rendering fails:
 - Return the run ID and available stored report location.
 - Do not invent a report path.
 
-## Cross-skill references
+## Stage references
 
-| Stage | Sub-skill |
+Read each reference completely when its stage begins. Do not ask a subagent to discover or load these files on behalf of the orchestrator.
+
+| Stage | Reference |
 |---|---|
-| Evidence retrieval and safety | `trading-debate-evidence` |
-| Four-analyst analysis | `trading-debate-analysis` |
-| Bull vs Bear debate | `trading-debate-debate` |
-| Committee and report | `trading-debate-verdict` |
+| Evidence retrieval and safety | [`references/evidence.md`](references/evidence.md) |
+| Four-analyst analysis | [`references/analysis.md`](references/analysis.md) |
+| Bull vs Bear debate | [`references/debate.md`](references/debate.md) |
+| Committee and report | [`references/verdict.md`](references/verdict.md) |
 
 ## Quality gates
 
