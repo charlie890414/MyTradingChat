@@ -197,6 +197,7 @@ class ResearchApp(BaseHTTPRequestHandler):
                     status=run["status"],
                     verdict=run["verdict"],
                     confidence=run["confidence"],
+                    debate_rounds=run["debate_rounds"],
                     report=report,
                     evidence=evidence,
                     parts=parts,
@@ -264,7 +265,12 @@ class ResearchApp(BaseHTTPRequestHandler):
         try:
             path = Path(run["report_path"]).resolve()
             if path.is_relative_to(self.reports_path.resolve()):
-                shutil.rmtree(path.parent)
+                if path.parent.name == run_id:
+                    shutil.rmtree(path.parent)
+                else:
+                    # Legacy reports shared a symbol directory. Remove only the
+                    # referenced file so deleting one run cannot erase siblings.
+                    path.unlink(missing_ok=True)
             else:
                 return "研究資料已刪除；報表位於預期目錄外，因此未刪除"
         except OSError as exc:

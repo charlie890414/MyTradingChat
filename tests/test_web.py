@@ -52,7 +52,7 @@ def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path
     assert "completed" in page
 
 
-def test_ui_delete_removes_run_data_and_report_directory(tmp_path: Path):
+def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"
     report = reports / "2026-07-30" / "NVDA" / "report.md"
@@ -65,11 +65,27 @@ def test_ui_delete_removes_run_data_and_report_directory(tmp_path: Path):
     app.reports_path = reports
 
     assert app._delete("run-1") is None
-    assert not report.parent.exists()
+    assert not report.exists()
+    assert report.parent.exists()
     with td.connect(db_path) as con:
         assert con.execute("SELECT * FROM runs").fetchall() == []
         assert con.execute("SELECT * FROM evidence").fetchall() == []
         assert con.execute("SELECT * FROM contributions").fetchall() == []
+
+
+def test_ui_delete_removes_run_specific_report_directory(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    reports = tmp_path / "reports"
+    report = reports / "2026-07-30" / "NVDA" / "run-1" / "report.md"
+    report.parent.mkdir(parents=True)
+    report.write_text("report", encoding="utf-8")
+    _insert_run(db_path, report)
+    app = object.__new__(ResearchApp)
+    app.db_path = db_path
+    app.reports_path = reports
+
+    assert app._delete("run-1") is None
+    assert not report.parent.exists()
 
 
 def test_layout_links_to_static_stylesheet():

@@ -747,7 +747,7 @@ def test_cmd_render(tmp_path: Path, capsys):
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
     report_path = Path(parsed["report_path"])
-    assert report_path == args.reports / "2026-07-30" / "AAPL" / "report.md"
+    assert report_path == (args.reports / "2026-07-30" / "AAPL" / "run-1" / "report.md")
     assert report_path.exists()
     content = report_path.read_text(encoding="utf-8")
     assert "AAPL" in content
@@ -1136,6 +1136,7 @@ def test_cmd_record_abstain_requires_explicit_valid_options(tmp_path: Path, caps
 def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
     db_path = tmp_path / "test.db"
     _create_record_run(db_path)
+    fetch_time = td.utc_now()
     with td.connect(db_path) as con:
         con.execute(
             "INSERT INTO evidence("
@@ -1148,7 +1149,7 @@ def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
                 None,
                 None,
                 "{}",
-                td.utc_now(),
+                fetch_time,
                 "fundamentals",
             ),
         )
@@ -1162,6 +1163,20 @@ def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
             actor="committee",
             verdict="hold",
             confidence="medium",
+            content=(
+                "# 投資委員會裁決\n\n"
+                "## Machine-readable summary\n"
+                "```json\n"
+                + json.dumps(
+                    {
+                        "recommendation": "hold",
+                        "confidence": "medium",
+                        "fetch_time": fetch_time,
+                        "critical_evidence_ids": ["EVID-0001"],
+                    }
+                )
+                + "\n```"
+            ),
         )
     )
 

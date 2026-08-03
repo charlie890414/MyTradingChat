@@ -84,7 +84,13 @@ def test_resolve_taiwan_yahoo_symbol_defaults_to_tw_when_neither_resolves(
     "symbol,info,chinese_name,expected",
     [
         ("AAPL", None, None, "AAPL"),
-        ("aapl", {"longName": "Apple Inc."}, None, "AAPL"),
+        ("aapl", {"longName": "Apple Inc."}, None, "Apple Inc."),
+        (
+            "BE",
+            {"longName": "Bloom Energy Corporation"},
+            None,
+            "Bloom Energy Corporation",
+        ),
         ("3037.TW", None, None, "3037.TW"),
         (
             "3037.TW",

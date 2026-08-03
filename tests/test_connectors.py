@@ -134,6 +134,17 @@ def test_fetch_google_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
 
 
 @patch("trading_debate.connectors.google_news.feedparser")
+def test_fetch_google_news_disambiguates_short_us_ticker(mock_feedparser):
+    mock_feedparser.parse.return_value = type("Feed", (), {"entries": []})()
+
+    fetch_google_news("run-1", "BE", 10, company_name="Bloom Energy Corporation")
+
+    called_url = mock_feedparser.parse.call_args[0][0]
+    assert "Bloom%20Energy%20Corporation" in called_url
+    assert "q=BE%2Bstock" not in called_url
+
+
+@patch("trading_debate.connectors.google_news.feedparser")
 def test_fetch_google_news_respects_limit(mock_feedparser):
     mock_feedparser.parse.return_value = type(
         "Feed",
@@ -171,6 +182,17 @@ def test_fetch_bing_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
     assert "%E6%AC%A3%E8%88%88" in called_url  # URL-encoded 欣興
     assert "3037.TW" not in called_url
     assert "stock" not in called_url
+
+
+@patch("trading_debate.connectors.bing_news.feedparser")
+def test_fetch_bing_news_disambiguates_short_us_ticker(mock_feedparser):
+    mock_feedparser.parse.return_value = type("Feed", (), {"entries": []})()
+
+    fetch_bing_news("run-1", "BE", 10, company_name="Bloom Energy Corporation")
+
+    called_url = mock_feedparser.parse.call_args[0][0]
+    assert "Bloom%20Energy%20Corporation" in called_url
+    assert "q=BE%2Bstock" not in called_url
 
 
 @patch("trading_debate.connectors.bing_news.feedparser")

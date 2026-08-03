@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sqlite3
 
 from .db import connect, evidence_reference
@@ -71,7 +73,8 @@ def cmd_render(args: argparse.Namespace) -> None:
     body.extend(["", "## 資料限制", ""])
     body.extend([f"- {item}" for item in limitations] or ["- 無額外限制。"])
     report_date = run["created_at"][:10]
-    report_dir = args.reports / report_date / run["symbol"]
+    # A run-specific directory keeps same-day research for one symbol immutable.
+    report_dir = args.reports / report_date / run["symbol"] / run["id"]
     report_dir.mkdir(parents=True, exist_ok=True)
     path = report_dir / "report.md"
     path.write_text("\n".join(body).strip() + "\n", encoding="utf-8")
@@ -100,9 +103,53 @@ def _render_status(
     if not required_analyses.issubset(analyses):
         limitations.append("四位指定分析師報告尚未齊備。")
     debates = [row for row in parts if row["stage"] == "debate"]
-    expected_turns = run["debate_rounds"] * 2
-    if len(debates) != expected_turns:
+    expected_debates = [
+        (actor, round_no)
+        for round_no in range(1, run["debate_rounds"] + 1)
+        for actor in ("bull", "bear")
+    ]
+    actual_debates = [(row["actor"].lower(), row["round_no"]) for row in debates]
+    if actual_debates != expected_debates:
         limitations.append("牛熊辯論回合尚未完整保存。")
     if not run["verdict"]:
         limitations.append("尚未取得可用的投資委員會評等。")
+    else:
+        verdict_parts = [row for row in parts if row["stage"] == "verdict"]
+        if len(verdict_parts) != 1 or verdict_parts[0]["actor"].lower() != "committee":
+            limitations.append("投資委員會裁決紀錄不唯一或角色不正確。")
+        elif not _valid_verdict_summary(run, evidence, verdict_parts[0]["content"]):
+            limitations.append(
+                "投資委員會缺少與資料庫一致、可驗證的 machine-readable summary。"
+            )
     return ("completed" if not limitations else "incomplete", limitations)
+
+
+def _valid_verdict_summary(
+    run: sqlite3.Row, evidence: list[sqlite3.Row], content: str
+) -> bool:
+    """Validate the committee's structured conclusion against persisted data."""
+    match = re.search(
+        r"## Machine-readable summary\s*```json\s*(\{.*?\})\s*```",
+        content,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return False
+    try:
+        summary = json.loads(match.group(1))
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if summary.get("recommendation") != run["verdict"]:
+        return False
+    if summary.get("confidence") != run["confidence"]:
+        return False
+    fetched_at = max((row["fetched_at"] for row in evidence), default=None)
+    if summary.get("fetch_time") != fetched_at:
+        return False
+    valid_ids = {evidence_reference(row["id"]) for row in evidence}
+    critical_ids = summary.get("critical_evidence_ids")
+    return (
+        isinstance(critical_ids, list)
+        and bool(critical_ids)
+        and all(item in valid_ids for item in critical_ids)
+    )

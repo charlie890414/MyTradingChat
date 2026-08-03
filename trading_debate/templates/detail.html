@@ -19,6 +19,10 @@
     <span>信心</span>
     <b>{{ confidence or '—' }}</b>
   </div>
+  <div class="card">
+    <span>預定辯論回合</span>
+    <b>{{ debate_rounds }}</b>
+  </div>
 </div>
 
 <p>{{ report | safe }}</p>
@@ -27,7 +31,7 @@
 {% if evidence %}
   {% for item in evidence %}
   <details>
-    <summary>[{{ item['reference'] }}] {{ item['source'] }} — {{ item['title'] }}</summary>
+    <summary>[{{ evidence_reference(item['id']) }}] {{ item['source'] }} — {{ item['title'] }}</summary>
     <p class="muted">發布：{{ item['published_at'] or '未知' }}｜擷取：{{ item['fetched_at'] }}</p>
     {% if item['url'] %}
     <p><a href="{{ item['url'] }}" target="_blank">開啟來源 ↗</a></p>

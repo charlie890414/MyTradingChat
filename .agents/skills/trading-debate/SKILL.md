@@ -175,7 +175,7 @@ python -m trading_debate.cli render --run-id <run-id> --reports reports
 
 The verdict stage requires either `--verdict <buy|hold|reduce>` with `--confidence <low|medium|high>`, or `--abstain`. An abstention keeps `verdict` null and `render` marks the run as `incomplete` while preserving the Committee explanation.
 
-`render` writes `reports/<YYYY-MM-DD>/<SYMBOL>/report.md` combining the evidence pack, analyst reports, debate turns, and verdict.
+`render` writes `reports/<YYYY-MM-DD>/<SYMBOL>/<RUN-ID>/report.md` combining the evidence pack, analyst reports, debate turns, and verdict. The run-specific directory prevents same-day research for one symbol from overwriting an earlier report.
 
 Confirm every `record` echoed the expected run-id. If any echoed run-id differs, stop and investigate instead of rendering a run that is missing required parts.
 

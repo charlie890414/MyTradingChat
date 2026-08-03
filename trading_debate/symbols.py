@@ -57,15 +57,12 @@ def company_search_name(
 ) -> str:
     """Return a human-readable name to use when searching news sources.
 
-    For Taiwan numeric codes this prefers a Chinese name when provided, then
-    the company long/short name from Yahoo Finance info (e.g.
-    ``3037.TW`` -> ``"Unimicron Technology Corp."``), falling back to the
-    original symbol. US-style tickers are returned unchanged so searches stay
-    ticker-centric.
+    This prefers a Taiwan company's Chinese name when provided, then the
+    company long/short name from Yahoo Finance info, and finally the symbol.
+    Using the company name for US tickers is important for ambiguous symbols
+    such as ``BE``, ``IT``, or ``ON`` that are also common English words.
     """
-    if not taiwan_code(symbol):
-        return symbol.upper()
-    if chinese_name:
+    if taiwan_code(symbol) and chinese_name:
         return chinese_name
     if info:
         return info.get("longName") or info.get("shortName") or symbol.upper()
