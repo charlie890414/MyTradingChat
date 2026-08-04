@@ -19,6 +19,9 @@ trading-debate = "trading_debate.cli:main"
 include = ["trading_debate*"]
 exclude = ["data*", "reports*", "tests*"]
 
+[tool.setuptools.package-data]
+trading_debate = ["templates/*.html", "static/*.css"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
