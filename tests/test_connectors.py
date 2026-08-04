@@ -228,7 +228,6 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
         [{"period": "2026-01-01", "buy": 10, "hold": 2, "sell": 1}],
         {"targetMean": 200.0, "targetHigh": 220.0, "targetLow": 180.0},
         {"data": [{"period": "2026-03-31", "epsAvg": 1.3}]},
-        {"data": [{"period": "2026-03-31", "revenueAvg": 100.0}]},
         {"data": [{"endDate": "2026-01-01", "report": {}}]},
     ]
     items = fetch_finnhub("run-1", "AAPL", 10)
@@ -238,8 +237,9 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
     assert any(item.source == "Finnhub Recommendation Trends" for item in items)
     assert any(item.source == "Finnhub Price Targets" for item in items)
     assert any(item.source == "Finnhub EPS Estimates" for item in items)
-    assert any(item.source == "Finnhub Revenue Estimates" for item in items)
     assert any(item.source == "Finnhub Financials As Reported" for item in items)
+    requested_urls = [call.args[0] for call in mock_request.call_args_list]
+    assert not any("stock/revenue-estimate" in url for url in requested_urls)
 
 
 @patch("trading_debate.connectors.finnhub.os.getenv")

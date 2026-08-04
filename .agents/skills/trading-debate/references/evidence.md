@@ -117,8 +117,8 @@ The fetcher may use the following sources when configured:
 - Google News RSS (no API key required)
 - Bing News RSS (no API key required)
 - Finnhub through `FINNHUB_API_KEY` (company news, reported financials,
-  earnings surprises, recommendation trends, price targets, and EPS/revenue
-  estimates when the provider plan permits)
+  earnings surprises, recommendation trends, price targets, and EPS estimates
+  when the provider plan permits)
 - FinMind through `FINMIND_TOKEN`
 - TWSE OpenAPI
 - MOPS
