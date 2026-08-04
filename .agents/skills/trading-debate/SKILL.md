@@ -10,6 +10,7 @@ Orchestrate a multi-stage equity research debate for Taiwan- or US-listed equiti
 ## Global constraints
 
 - All output must be in Traditional Chinese.
+- Run every Python command through uv as `uv run python ...`; never invoke `python`, `python3`, or `py` directly.
 - Do not place trades, connect to a brokerage, submit orders, or provide transaction-execution instructions.
 - Research ratings are not trade instructions.
 - Evidence pack is the single source of record for the run.
@@ -43,8 +44,8 @@ The Investment Committee may issue only one of:
 
 When the user asks for prior research, historical context, or a follow-up on a previously analysed company, search SQLite before starting a new run:
 
-```powershell
-python -m trading_debate.cli search --query "<symbol>" --limit 10
+```shell
+uv run python -m trading_debate.cli search --query "<symbol>" --limit 10
 ```
 
 `--limit` controls the maximum number of past runs returned (default 10).
@@ -58,8 +59,8 @@ When using a prior report:
 
 ### 2. Start a run
 
-```powershell
-python -m trading_debate.cli init --symbol <SYMBOL> --question "<question>" --rounds <N>
+```shell
+uv run python -m trading_debate.cli init --symbol <SYMBOL> --question "<question>" --rounds <N>
 ```
 
 All commands in this workflow run against the default database `data/research.sqlite3`. Do not add `--db` to any command.
@@ -68,8 +69,8 @@ Capture and retain the returned `run-id`.
 
 Verify the run exists before proceeding:
 
-```powershell
-python -m trading_debate.cli context --run-id <run-id>
+```shell
+uv run python -m trading_debate.cli context --run-id <run-id>
 ```
 
 `context` fails with `Unknown run id` when the run was not created; do not work around that failure by creating a new run. If init or context fails, report the failure instead of inventing a run.
@@ -92,9 +93,9 @@ The reference covers:
 - Fabrication prohibition
 - Evidence quality framework
 
-```powershell
-python -m trading_debate.cli fetch --run-id <run-id> --news-limit 10
-python -m trading_debate.cli context --run-id <run-id>
+```shell
+uv run python -m trading_debate.cli fetch --run-id <run-id> --news-limit 10
+uv run python -m trading_debate.cli context --run-id <run-id>
 ```
 
 `fetch` writes evidence items into the run's SQLite database; `--news-limit` caps per-source news items (default 10). `context` prints the assembled evidence pack JSON that downstream stages consume.
@@ -123,16 +124,16 @@ The reference covers report format requirements, role-specific rules (valuation 
 
 Persist each analyst report as it is produced:
 
-```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor technical --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/technical-analyst.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor news --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/news-events-analyst.md
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor sentiment --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
+```shell
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor technical --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/technical-analyst.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor news --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/news-events-analyst.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor sentiment --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 ```
 
 Pass `--content "<markdown string>"` instead of `--content-file` for short inline payloads. The CLI requires exactly one of `--content` or `--content-file`.
 
-After each `record`, confirm the echoed `run_id` equals the expected run-id. If an analyst report was persisted to a different run, retry it or stop; do not proceed with a missing analyst on the expected run. Use `python -m trading_debate.cli runs --limit 10` to inspect record counts when in doubt.
+After each `record`, confirm the echoed `run_id` equals the expected run-id. If an analyst report was persisted to a different run, retry it or stop; do not proceed with a missing analyst on the expected run. Use `uv run python -m trading_debate.cli runs --limit 10` to inspect record counts when in doubt.
 
 ### 5. Run debate stage
 
@@ -149,9 +150,9 @@ The reference covers rebuttal rules (name opposing claim, quote, cite evidence I
 
 Persist each turn immediately after the rebuttal, before the next turn begins:
 
-```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bull --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bull-round-<N>.md
-python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bear --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bear-round-<N>.md
+```shell
+uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bull --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bull-round-<N>.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --round <N> --actor bear --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/bear-round-<N>.md
 ```
 
 `--round <N>` is required for debate turns so the Committee can reconstruct turn order.
@@ -168,9 +169,9 @@ The reference covers the required output format, research rating definitions, in
 
 Persist the Committee report and render the final Markdown:
 
-```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
-python -m trading_debate.cli render --run-id <run-id> --reports reports
+```shell
+uv run python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
+uv run python -m trading_debate.cli render --run-id <run-id> --reports reports
 ```
 
 The verdict stage requires either `--verdict <buy|hold|reduce>` with `--confidence <low|medium|high>`, or `--abstain`. An abstention keeps `verdict` null and `render` marks the run as `incomplete` while preserving the Committee explanation.

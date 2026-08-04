@@ -206,8 +206,8 @@ data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 
 Persist one record per analyst:
 
-```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+```shell
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
 ```
 
 Verify that each `record` command succeeds before continuing.

@@ -6,7 +6,7 @@ Open this repository with an agent workflow and ask, for example: `分析 NVDA�
 
 Install the local tool once:
 
-```powershell
+```shell
 python -m pip install -e .
 ```
 
@@ -14,7 +14,7 @@ The agent workflow is defined at `.agents/skills/trading-debate/`. It instructs 
 
 Optional connectors are enabled only when their credentials exist in the environment:
 
-```powershell
+```shell
 $env:FINNHUB_API_KEY = "..."
 $env:FINMIND_TOKEN = "..."
 ```
@@ -34,7 +34,7 @@ links and records any document-level retrieval failures as evidence gaps.
 Create a run, fetch its evidence pack, and inspect the JSON context before any
 agent writes a contribution:
 
-```powershell
+```shell
 $run = trading-debate init --symbol NVDA --question "分析 NVDA 的多空觀點" --rounds 3 | ConvertFrom-Json
 trading-debate fetch --run-id $run.run_id
 trading-debate context --run-id $run.run_id
@@ -44,7 +44,7 @@ Use canonical roles when persisting work. Display names such as
 `"Fundamentals Analyst"`, `"Bull Researcher"`, and `"Investment Committee"`
 are accepted for compatibility, but are stored as canonical roles.
 
-```powershell
+```shell
 trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md
 trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md
 trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md
@@ -66,13 +66,30 @@ explicitly use `--abstain` instead of omitting verdict arguments.
 
 Start the local UI after creating research runs:
 
-```powershell
+```shell
 trading-debate serve
 ```
 
 Open `http://127.0.0.1:8765` to search and filter prior research, inspect its
 evidence, analyst reports, debate history, and rendered Markdown report. Every
 view labels stored research as historical context and shows its recorded dates.
+
+### Docker Compose
+
+Build and start the web UI in a container:
+
+```shell
+docker compose up --build -d
+```
+
+Open `http://127.0.0.1:8765`. The Compose service mounts the local `data/` and
+`reports/` directories, so existing research remains available and new runtime
+data survives container recreation. Connector credentials are not passed to the
+read-only web service. To use another host port, set `WEB_PORT` before starting
+the service, for example `$env:WEB_PORT = "8080"`.
+
+Stop the service with `docker compose down`. This does not remove the mounted
+research data or reports.
 
 To delete a run, open its detail page and enter the exact research ID to confirm.
 This permanently removes its SQLite run data, evidence, contributions, and its

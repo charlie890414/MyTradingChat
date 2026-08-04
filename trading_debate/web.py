@@ -48,6 +48,19 @@ _env.globals["evidence_reference"] = evidence_reference
 _env.filters["urlencode"] = _urlencode
 
 
+def _resolve_report_path(stored_path: str, reports_path: Path) -> Path:
+    """Resolve report paths written on either Windows or POSIX hosts."""
+    direct = Path(stored_path)
+    if direct.is_absolute() or direct.is_file():
+        return direct
+
+    normalized = Path(stored_path.replace("\\", "/"))
+    parts = normalized.parts
+    if parts and parts[0].casefold() == reports_path.name.casefold():
+        normalized = Path(*parts[1:])
+    return reports_path / normalized
+
+
 def _layout(title: str, content: str) -> str:
     return _env.get_template("layout.html").render(title=title, content=content)
 
@@ -210,7 +223,11 @@ class ResearchApp(BaseHTTPRequestHandler):
             row = con.execute(
                 "SELECT report_path FROM runs WHERE id = ?", (run_id,)
             ).fetchone()
-        path = Path(row["report_path"]) if row and row["report_path"] else None
+        path = (
+            _resolve_report_path(row["report_path"], self.reports_path)
+            if row and row["report_path"]
+            else None
+        )
         if not path or not path.is_file():
             self._send(
                 HTTPStatus.NOT_FOUND,
@@ -263,7 +280,7 @@ class ResearchApp(BaseHTTPRequestHandler):
         if not run["report_path"]:
             return None
         try:
-            path = Path(run["report_path"]).resolve()
+            path = _resolve_report_path(run["report_path"], self.reports_path).resolve()
             if path.is_relative_to(self.reports_path.resolve()):
                 if path.parent.name == run_id:
                     shutil.rmtree(path.parent)

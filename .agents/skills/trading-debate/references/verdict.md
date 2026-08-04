@@ -122,16 +122,16 @@ The Committee must explicitly explain:
 
 ## Persist verdict
 
-```powershell
-python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
+```shell
+uv run python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
 ```
 
 Use `--abstain` when evidence is insufficient for a rating; it cannot be combined with `--verdict` or `--confidence`. A rating requires both `--verdict` and `--confidence`.
 
 After successful validation, verify the render status is `completed`:
 
-```powershell
-python -m trading_debate.cli render --run-id <run-id>
+```shell
+uv run python -m trading_debate.cli render --run-id <run-id>
 ```
 
 The rendered report must preserve:

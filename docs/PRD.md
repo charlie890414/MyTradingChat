@@ -118,7 +118,7 @@ The system must expose the `trading-debate` CLI.
 
 Supported commands:
 
-```powershell
+```shell
 trading-debate init
 trading-debate fetch
 trading-debate context
@@ -132,7 +132,7 @@ trading-debate serve
 
 Command:
 
-```powershell
+```shell
 trading-debate init --symbol <SYMBOL> --question "<QUESTION>" --rounds <N>
 ```
 
@@ -158,7 +158,7 @@ Requirements:
 
 Command:
 
-```powershell
+```shell
 trading-debate fetch --run-id <RUN_ID> --news-limit 10
 ```
 
@@ -187,7 +187,7 @@ Requirements:
 
 Command:
 
-```powershell
+```shell
 trading-debate context --run-id <RUN_ID>
 ```
 
@@ -245,7 +245,7 @@ Requirements:
 
 Command:
 
-```powershell
+```shell
 trading-debate render --run-id <RUN_ID> --reports reports
 ```
 
@@ -260,7 +260,7 @@ Requirements:
 
 Command:
 
-```powershell
+```shell
 trading-debate search --query "<QUERY>" --limit 10
 ```
 
@@ -278,7 +278,7 @@ The system must provide a local web UI for browsing persisted research history. 
 
 Launch command:
 
-```powershell
+```shell
 trading-debate serve --db data/research.sqlite3 --reports reports [--host HOST] [--port PORT]
 ```
 

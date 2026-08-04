@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import trading_debate as td
-from trading_debate.web import ResearchApp, _layout
+from trading_debate.web import ResearchApp, _layout, _resolve_report_path
 
 
 def _insert_run(db_path: Path, report_path: Path | None = None) -> None:
@@ -71,6 +71,14 @@ def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path
         assert con.execute("SELECT * FROM runs").fetchall() == []
         assert con.execute("SELECT * FROM evidence").fetchall() == []
         assert con.execute("SELECT * FROM contributions").fetchall() == []
+
+
+def test_report_path_resolves_windows_path_inside_linux_container(tmp_path: Path):
+    reports = tmp_path / "reports"
+
+    resolved = _resolve_report_path(r"reports\2026-07-30\NVDA\report.md", reports)
+
+    assert resolved == reports / "2026-07-30" / "NVDA" / "report.md"
 
 
 def test_ui_delete_removes_run_specific_report_directory(tmp_path: Path):

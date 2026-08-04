@@ -10,7 +10,7 @@
 
 Use Python 3.11 or newer. Install the package for local CLI development:
 
-```powershell
+```shell
 python -m pip install -e .
 python -m pip install -e ".[dev]"
 pytest
