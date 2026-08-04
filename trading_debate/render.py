@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import json
-import re
 import sqlite3
 
+from .context import ContextSummaryError, parse_machine_summary
 from .db import connect, evidence_reference
 from .utils import as_json
 
@@ -128,16 +127,9 @@ def _valid_verdict_summary(
     run: sqlite3.Row, evidence: list[sqlite3.Row], content: str
 ) -> bool:
     """Validate the committee's structured conclusion against persisted data."""
-    match = re.search(
-        r"## Machine-readable summary\s*```json\s*(\{.*?\})\s*```",
-        content,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    if not match:
-        return False
     try:
-        summary = json.loads(match.group(1))
-    except (json.JSONDecodeError, TypeError):
+        summary = parse_machine_summary(content)
+    except ContextSummaryError:
         return False
     if summary.get("recommendation") != run["verdict"]:
         return False

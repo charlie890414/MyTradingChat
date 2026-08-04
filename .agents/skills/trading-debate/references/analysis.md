@@ -17,7 +17,7 @@ Spawn four independent subagents in parallel:
 3. `News & Events Analyst`
 4. `Sentiment Analyst`
 
-Each analyst receives the same JSON evidence pack. Do not provide one analyst's conclusions to another analyst during this stage.
+Each analyst receives the matching role context from `context --role fundamentals|technical|news|sentiment`. These are independent views of the same stored evidence. Do not provide one analyst's conclusions to another analyst during this stage.
 
 ## Subagent run ownership
 
@@ -25,7 +25,7 @@ When applying these rules as a subagent, do not assume ownership of the research
 
 - Use only the run-id provided in the evidence pack for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.
-- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+- If the run-id is missing, or the assigned role's context command fails, stop and report to the orchestrator instead of creating a new run.
 
 ## Common report requirements
 
@@ -91,6 +91,7 @@ Each analyst must use the following Markdown structure:
 ````
 
 The JSON summary must be consistent with the Markdown report.
+It is the downstream handoff to Bull, Bear, and Committee agents. Include every evidence ID needed to verify the summarized claims; it does not replace the full report or source evidence.
 
 ## Fundamentals Analyst
 
@@ -137,6 +138,8 @@ The Technical Analyst must state:
 - Whether prices are adjusted or unadjusted
 - Whether volume data is available
 - Which indicators were omitted due to insufficient data
+
+The role context contains at most the latest 30 daily, 26 weekly, and 12 monthly adjusted OHLCV bars. Treat these as a visual-inspection sample. Use the separately supplied technical indicators, which were calculated from the complete stored one-year daily history, rather than recalculating long-window indicators from the sample.
 
 Minimum-data rules:
 

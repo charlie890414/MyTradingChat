@@ -37,7 +37,7 @@ agent writes a contribution:
 ```shell
 $run = trading-debate init --symbol NVDA --question "分析 NVDA 的多空觀點" --rounds 3 | ConvertFrom-Json
 trading-debate fetch --run-id $run.run_id
-trading-debate context --run-id $run.run_id
+trading-debate context --run-id $run.run_id --role fundamentals
 ```
 
 Use canonical roles when persisting work. Display names such as
@@ -55,6 +55,12 @@ trading-debate record --run-id $run.run_id --stage verdict --actor committee --v
 trading-debate render --run-id $run.run_id
 trading-debate search --query NVDA
 ```
+
+`context` requires a role and returns a role-specific view of the same persisted
+evidence. Analyst roles are `fundamentals`, `technical`, `news`, and `sentiment`;
+later stages use `debate` and `committee`. The technical view samples the most
+recent 30 daily, 26 weekly, and 12 monthly OHLCV bars while preserving the full
+history in SQLite.
 
 Each role and debate turn has one logical record. Re-sending identical content
 returns a `duplicate` status without adding a row. To change an existing record,

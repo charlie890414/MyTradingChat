@@ -21,11 +21,13 @@ When applying these rules as a subagent, do not assume ownership of the research
 
 - Use only the run-id provided in the shared evidence pack for every read and write.
 - Never invoke `init`, `fetch`, or `render`.
-- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+- If the run-id is missing, or the assigned role's `context --run-id <id> --role <role>` fails, stop and report to the orchestrator instead of creating a new run.
 
 ## Shared evidence pack
 
-The evidence pack is the single source of record for the entire run. All subagents receive the same JSON context. No subagent independently browses for unrelated additional evidence unless the workflow explicitly supports appending evidence to the shared pack and recording the update for all later agents.
+SQLite evidence is the single source of record for the entire run. Each subagent receives a role-specific JSON view produced by `context --role`; these views may select, deduplicate, or semantically compact evidence but never replace the complete stored record. No subagent independently browses for unrelated additional evidence unless the workflow explicitly supports appending evidence to the shared record for all later agents.
+
+Analyst views contain evidence relevant to that role. Debate and Committee views contain upstream machine summaries plus the original payloads referenced by their evidence IDs. Resolve a material conflict by returning to those referenced payloads; do not treat a summary as stronger than its source evidence.
 
 ### News article body retrieval
 

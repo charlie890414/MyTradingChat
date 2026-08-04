@@ -636,7 +636,7 @@ def test_cmd_context(tmp_path: Path, capsys):
         (
             "run-1",
             "Yahoo Finance",
-            "Test headline",
+            "Fundamentals snapshot",
             "https://example.com",
             None,
             '{"key": "val"}',
@@ -649,12 +649,14 @@ def test_cmd_context(tmp_path: Path, capsys):
     args = MagicMock()
     args.db = db_path
     args.run_id = "run-1"
+    args.role = "fundamentals"
     td.cmd_context(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["run"]["symbol"] == "AAPL"
     assert len(parsed["evidence"]) == 1
     assert parsed["evidence"][0]["source"] == "Yahoo Finance"
+    assert "payload_json" not in parsed["evidence"][0]
 
 
 def test_cmd_search(tmp_path: Path, capsys):

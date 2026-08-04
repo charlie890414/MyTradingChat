@@ -17,7 +17,7 @@ Orchestrate a multi-stage equity research debate for Taiwan- or US-listed equiti
 - Run ID must be preserved and reused across all stages.
 - `init` is an orchestrator-only action. A subagent that receives a run-id must never invoke `init`.
 - A subagent must use exactly the run-id provided in the evidence pack for every read and write; it must not create, guess, or invent a run.
-- If a subagent has no run-id, or `context --run-id <id>` fails, it must stop and report to the orchestrator instead of creating a new run.
+- If a subagent has no run-id, or its role-specific `context` command fails, it must stop and report to the orchestrator instead of creating a new run.
 - Sub-agent failures must be recorded, not silently replaced by parent-agent invention.
 - A failed persistence step blocks progression to dependent stages.
 - All CLI commands use the default database `data/research.sqlite3`. Never pass `--db`; an alternative path splits research history and leaves orphan databases (e.g. `trading.db`, `trading_debate.db`) that are not visible to `search` or the UI.
@@ -70,7 +70,7 @@ Capture and retain the returned `run-id`.
 Verify the run exists before proceeding:
 
 ```shell
-uv run python -m trading_debate.cli context --run-id <run-id>
+uv run python -m trading_debate.cli context --run-id <run-id> --role fundamentals
 ```
 
 `context` fails with `Unknown run id` when the run was not created; do not work around that failure by creating a new run. If init or context fails, report the failure instead of inventing a run.
@@ -95,12 +95,12 @@ The reference covers:
 
 ```shell
 uv run python -m trading_debate.cli fetch --run-id <run-id> --news-limit 10
-uv run python -m trading_debate.cli context --run-id <run-id>
+uv run python -m trading_debate.cli context --run-id <run-id> --role fundamentals
 ```
 
-`fetch` writes evidence items into the run's SQLite database; `--news-limit` caps per-source news items (default 10). `context` prints the assembled evidence pack JSON that downstream stages consume.
+`fetch` writes complete evidence items into SQLite; `--news-limit` caps per-source news items (default 10). `context` requires a role and prints that role's compact view of the shared evidence record. It never deletes or truncates the stored evidence.
 
-The shared evidence pack must include run ID, symbol, user question, fetch timestamp, source metadata, evidence items, connector availability metadata, and known data gaps. It becomes the source of record for all subsequent stages.
+Every role context must include run ID, symbol, user question, fetch timestamp, source metadata, connector availability metadata, and known data gaps. The complete SQLite evidence remains the source of record for all subsequent stages.
 
 When a news evidence item contains a URL, agents may use available read-only web,
 browser, or connector tools to open the linked article and retrieve its body text.
@@ -118,9 +118,18 @@ Before spawning analysts, read [`references/analysis.md`](references/analysis.md
 3. News & Events Analyst
 4. Sentiment Analyst
 
-Each receives the same JSON evidence pack. Do not provide one analyst's conclusions to another during this stage.
+Generate a separate context for each analyst and give it only to that role:
 
-The reference covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md`), and idempotency keys. Give each analyst the shared evidence pack, the applicable role section, the common report requirements, and the mandatory evidence rules.
+```shell
+uv run python -m trading_debate.cli context --run-id <run-id> --role fundamentals
+uv run python -m trading_debate.cli context --run-id <run-id> --role technical
+uv run python -m trading_debate.cli context --run-id <run-id> --role news
+uv run python -m trading_debate.cli context --run-id <run-id> --role sentiment
+```
+
+Do not provide one analyst's conclusions to another during this stage. Each context is a role-specific view of the same persisted evidence record, not an independent evidence fetch.
+
+The reference covers report format requirements, role-specific rules (valuation framework for Fundamentals, minimum-data rules for Technical, catalyst classification for News & Events, proxy labeling for Sentiment), staging file paths (`data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md`), and idempotency keys. Give each analyst its role context, the applicable role section, the common report requirements, and the mandatory evidence rules.
 
 Persist each analyst report as it is produced:
 
@@ -137,13 +146,19 @@ After each `record`, confirm the echoed `run_id` equals the expected run-id. If 
 
 ### 5. Run debate stage
 
-Before starting debate, read [`references/debate.md`](references/debate.md) completely. Then spawn Bull Researcher and Bear Researcher, giving both the shared evidence pack, analyst reports, debate rules, and mandatory evidence rules.
+Before starting debate, read [`references/debate.md`](references/debate.md) completely. Before every Bull or Bear turn, run:
+
+```shell
+uv run python -m trading_debate.cli context --run-id <run-id> --role debate
+```
+
+The returned `next_turn` identifies the expected actor and round. Give that researcher the returned analyst/debate summaries, referenced evidence, `previous_opposing_turn`, debate rules, and mandatory evidence rules. Do not resend the full evidence pack or every full prior report.
 
 For each round:
 
 1. Bull Researcher responds with direct rebuttal format.
 2. Bear Researcher receives the Bull turn and responds.
-3. Update the compact debate state.
+3. Include the updated compact state in the turn's machine-readable summary.
 4. Persist both turns with `--stage debate --round <N>`.
 
 The reference covers rebuttal rules (name opposing claim, quote, cite evidence IDs, identify gaps, separate fact from inference, update thesis, state conviction change), debate output format, compact debate state structure, and full history preservation.
@@ -161,7 +176,13 @@ After persisting each round, confirm both echoed `run_id` values equal the expec
 
 ### 6. Run verdict stage
 
-Before producing a verdict, read [`references/verdict.md`](references/verdict.md) completely. Then spawn the Investment Committee subagent with all prior reports, every debate turn, the compact debate state, the shared evidence pack, the verdict rules, and the mandatory evidence rules.
+Before producing a verdict, read [`references/verdict.md`](references/verdict.md) completely. Build its input with:
+
+```shell
+uv run python -m trading_debate.cli context --run-id <run-id> --role committee
+```
+
+Then spawn the Investment Committee with the returned analyst and debate summaries, latest full Bull and Bear turns, referenced evidence, connector gaps, verdict rules, and mandatory evidence rules. Do not resend every full prior report or debate turn.
 
 The Committee resolves conflicts by evidence quality, not majority vote. It must not simply count bullish and bearish agents.
 
@@ -219,6 +240,10 @@ After every `record` command:
 - Check the exit code and returned record status.
 - Stop progression to dependent stages if required content was not persisted.
 - Do not claim a report is complete when persistence failed.
+
+### Summary failures
+
+If `context --role debate` or `context --role committee` reports a missing, invalid, or unknown-evidence machine summary, stop. Regenerate and replace the malformed upstream contribution while replacement is still allowed; otherwise mark the run incomplete. Never substitute an uncited parent-agent summary.
 
 ### Render failures
 

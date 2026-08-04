@@ -12,12 +12,12 @@ After all available analyst reports are persisted, spawn two subagents:
 - `Bull Researcher`
 - `Bear Researcher`
 
-Give both researchers:
+Before each turn, run `context --run-id <run-id> --role debate`. Give the expected researcher:
 
-- The shared evidence pack
-- All analyst reports
-- The current compact debate state
-- Prior debate turns required for direct rebuttal
+- Analyst and completed-debate machine summaries
+- Original payloads for evidence IDs referenced by those summaries
+- The immediately preceding opposing turn required for direct rebuttal
+- The compact state carried in completed debate summaries
 
 All debate turns must be written in Traditional Chinese.
 
@@ -25,9 +25,9 @@ All debate turns must be written in Traditional Chinese.
 
 When applying these rules as a subagent, do not assume ownership of the research run.
 
-- Use only the run-id provided in the shared evidence pack for every `record` command.
+- Use only the run-id provided in the role context for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.
-- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+- If the run-id is missing, or `context --run-id <id> --role debate` fails, stop and report to the orchestrator instead of creating a new run.
 
 ## Debate rules
 
@@ -47,7 +47,7 @@ Each turn must:
 
 A valid rebuttal contains:
 
-```markdown
+````markdown
 ## 直接反駁
 - 對方主張：
 - 回應：
@@ -65,7 +65,33 @@ A valid rebuttal contains:
 - 信心：
 - 最關鍵證據：
 - 最大弱點：
+
+## Machine-readable summary
+```json
+{
+  "actor": "bull|bear",
+  "round": 1,
+  "stance": "bullish|bearish",
+  "confidence": "low|medium|high",
+  "opposing_claims": [],
+  "updated_claims": [],
+  "accepted_claims": [],
+  "disputed_claims": [],
+  "resolved_claims": [],
+  "rejected_claims": [],
+  "open_questions": [],
+  "unresolved_disagreements": [],
+  "bull_thesis": "",
+  "bear_thesis": "",
+  "bull_confidence": "low|medium|high",
+  "bear_confidence": "low|medium|high",
+  "evidence_ids": [],
+  "critical_evidence_ids": []
+}
 ```
+````
+
+The JSON summary is required for every turn and must agree with the Markdown. Later turns and the Committee consume it as the compact debate state. Include all evidence IDs needed to verify its claims.
 
 ## Debate order
 
@@ -73,7 +99,7 @@ For each requested round:
 
 1. Bull Researcher responds.
 2. Bear Researcher receives the Bull turn and responds.
-3. The parent agent updates the compact debate state.
+3. The researcher updates the compact state in the machine-readable summary.
 4. Persist both turns.
 
 ### Persist debate turns
@@ -94,7 +120,7 @@ Never silently omit a debate turn.
 
 ## Compact debate state
 
-To control context growth, maintain a compact state after each round:
+To control context growth, carry the following fields in each machine-readable debate summary:
 
 ```json
 {
@@ -111,4 +137,4 @@ To control context growth, maintain a compact state after each round:
 }
 ```
 
-Persist full debate turns in the database and final report. Use the compact state for later rounds, while including enough prior text to support direct rebuttal. Do not replace the preserved full debate history with summaries.
+Persist full debate turns in the database and final report. Later rounds receive all completed summaries and only the immediately preceding opposing turn in full. Do not replace the preserved database or rendered history with summaries.

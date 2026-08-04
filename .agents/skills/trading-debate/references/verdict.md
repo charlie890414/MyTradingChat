@@ -14,18 +14,20 @@ When applying these rules as a subagent, do not assume ownership of the research
 
 - Use only the run-id provided in the shared evidence pack for every `record` command.
 - Never invoke `init`, `fetch`, or `render`.
-- If the run-id is missing, or `context --run-id <id>` fails, stop and report to the orchestrator instead of creating a new run.
+- If the run-id is missing, or `context --run-id <id> --role committee` fails, stop and report to the orchestrator instead of creating a new run.
 
 ## Investment Committee
 
-After the requested debate rounds, spawn one `Investment Committee` subagent. Provide:
+After the requested debate rounds, run `context --run-id <id> --role committee` and spawn one `Investment Committee` subagent. Provide:
 
-- Shared evidence pack
-- Four analyst reports
-- Every debate turn
-- Compact debate state
+- Four analyst machine summaries
+- Every Bull and Bear machine summary
+- The latest full Bull and Bear turns
+- Original payloads for evidence IDs referenced by those summaries
 - Evidence quality framework
 - Known connector and evidence gaps
+
+The complete reports, debate turns, and evidence remain stored for audit and rendering. If a summarized conflict cannot be resolved from the supplied referenced payloads, retrieve the original evidence by its ID rather than guessing.
 
 The Investment Committee must resolve conflicts by evidence quality, not majority vote. It must not simply count bullish and bearish agents.
 

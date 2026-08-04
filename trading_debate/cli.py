@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -12,12 +11,12 @@ from typing import Any
 from uuid import uuid4
 
 from .connectors import CONNECTORS, fetch_yahoo
+from .context import CONTEXT_ROLES, ContextSummaryError, assemble_context
 from .db import (
     CONFIDENCE_LEVELS,
     RATINGS,
     connect,
     delete_run,
-    evidence_reference,
     insert_evidence_items,
     normalize_contribution_actor,
     update_run_verdict,
@@ -185,35 +184,17 @@ def cmd_context(args: argparse.Namespace) -> None:
             """,
             (args.run_id,),
         ).fetchall()
+        contributions = con.execute(
+            "SELECT * FROM contributions WHERE run_id = ? ORDER BY id",
+            (args.run_id,),
+        ).fetchall()
     if not run:
         raise SystemExit(f"Unknown run id: {args.run_id}")
-    print(
-        as_json(
-            {
-                "run": dict(run),
-                "evidence_fetched_at": max(
-                    (row["fetched_at"] for row in evidence), default=None
-                ),
-                "evidence": [
-                    {
-                        **dict(row),
-                        "evidence_id": evidence_reference(row["id"]),
-                        "payload": json.loads(row["payload_json"]),
-                    }
-                    for row in evidence
-                ],
-                "connector_status": [
-                    {
-                        "source": row["source"],
-                        "state": json.loads(row["payload_json"]).get("state"),
-                        "detail": json.loads(row["payload_json"]).get("detail"),
-                    }
-                    for row in evidence
-                    if row["title"].startswith("Connector ")
-                ],
-            }
-        )
-    )
+    try:
+        context = assemble_context(run, evidence, contributions, args.role)
+    except ContextSummaryError as exc:
+        raise SystemExit(f"Cannot build {args.role} context: {exc}") from exc
+    print(as_json(context))
 
 
 _ANALYSTS = {"fundamentals", "technical", "news", "sentiment"}
@@ -573,6 +554,7 @@ def parser() -> argparse.ArgumentParser:
 
     context = sub.add_parser("context")
     context.add_argument("--run-id", required=True)
+    context.add_argument("--role", choices=CONTEXT_ROLES, required=True)
     context.set_defaults(func=cmd_context)
 
     record = sub.add_parser("record")
