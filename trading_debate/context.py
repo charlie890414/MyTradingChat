@@ -134,7 +134,11 @@ def assemble_context(
     summaries = _required_summaries(run, contributions, role)
     base["contribution_summaries"] = summaries
     referenced_ids = _summary_evidence_ids(summaries)
-    evidence_by_id = {evidence_reference(row["id"]): row for row in investable}
+    evidence_by_id = {
+        evidence_reference(row["id"]): row
+        for row in evidence
+        if not _is_status(row) or evidence_reference(row["id"]) in referenced_ids
+    }
     base["referenced_evidence"] = [
         _serialize_evidence(evidence_by_id[item])
         for item in referenced_ids
