@@ -56,9 +56,11 @@ def test_fetch_yahoo_live_returns_real_market_data():
 
 def test_fetch_twse_mops_live_returns_real_profile():
     items = fetch_twse_mops("test-live", "1101", 0)
-    profile_items = [item for item in items if item.source == "TWSE OpenAPI / MOPS"]
+    profile_items = [
+        item for item in items if item.source == "TWSE/TPEX Official Company Profile"
+    ]
     assert profile_items
-    assert profile_items[0].title == "Official listed-company disclosure profile"
+    assert profile_items[0].title == "Official company profile"
     assert str(profile_items[0].payload.get("公司代號", "")).strip() == "1101"
 
 

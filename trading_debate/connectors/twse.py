@@ -18,23 +18,8 @@ _PROFILE_ENDPOINTS = [
         "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
     ),
     (
-        "TWSE listed-company profile",
-        "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
-    ),
-    (
         "TPEX company profile",
         "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
-    ),
-]
-
-_DISCLOSURE_ENDPOINTS = [
-    (
-        "MOPS material information",
-        "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
-    ),
-    (
-        "TPEX material information",
-        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O",
     ),
 ]
 
@@ -98,6 +83,53 @@ _STATEMENT_ENDPOINTS = {
     ],
 }
 
+_TPEX_STATEMENT_ENDPOINTS = {
+    "Income statement": [
+        (
+            "TPEX MOPS income statement (financial holding)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_fh",
+        ),
+        (
+            "TPEX MOPS income statement (financial)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_basi",
+        ),
+        (
+            "TPEX MOPS income statement (securities)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_bd",
+        ),
+        (
+            "TPEX MOPS income statement (insurance)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_ins",
+        ),
+        (
+            "TPEX MOPS income statement (general)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_ci",
+        ),
+    ],
+    "Balance sheet": [
+        (
+            "TPEX MOPS balance sheet (financial holding)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_fh",
+        ),
+        (
+            "TPEX MOPS balance sheet (financial)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_basi",
+        ),
+        (
+            "TPEX MOPS balance sheet (securities)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_bd",
+        ),
+        (
+            "TPEX MOPS balance sheet (insurance)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_ins",
+        ),
+        (
+            "TPEX MOPS balance sheet (general)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_ci",
+        ),
+    ],
+}
+
 
 def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
     return EvidenceItem(
@@ -109,7 +141,13 @@ def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
 
 
 def _company_code(row: dict[str, Any]) -> str:
-    for key in ("公司代號", "公司代號(股票代號)", "股票代號", "出表公司"):
+    for key in (
+        "公司代號",
+        "公司代號(股票代號)",
+        "股票代號",
+        "出表公司",
+        "SecuritiesCompanyCode",
+    ):
         value = str(row.get(key, "")).strip()
         if value:
             return value.split()[0]
@@ -152,7 +190,7 @@ def _items_from_endpoint_group(
             )
             evidence_title = (
                 title_prefix
-                if title_prefix == "Official listed-company disclosure profile"
+                if title_prefix == "Official company profile"
                 else f"{title_prefix}: {title}"
             )
             date = row.get("出表日期") or row.get("年月") or row.get("資料年月")
@@ -193,11 +231,13 @@ def _fetch_statement(
         return [
             EvidenceItem(
                 run_id=run_id,
-                source="TWSE OpenAPI / MOPS",
+                source="TWSE/TPEX Official Financial Statements",
                 title=f"Official {statement_name}: {row.get('公司名稱', code)}",
                 payload={"endpoint": label, **row},
                 url=url,
-                published_at=str(row.get("出表日期") or row.get("資料年月") or ""),
+                published_at=str(
+                    row.get("出表日期") or row.get("資料年月") or row.get("Date") or ""
+                ),
             )
             for row in rows[-limit:]
         ]
@@ -223,13 +263,8 @@ def fetch_twse_mops(
     for endpoint_group, source, title_prefix in (
         (
             _PROFILE_ENDPOINTS,
-            "TWSE OpenAPI / MOPS",
-            "Official listed-company disclosure profile",
-        ),
-        (
-            _DISCLOSURE_ENDPOINTS,
-            "TWSE/TPEX Material Information",
-            "Material information",
+            "TWSE/TPEX Official Company Profile",
+            "Official company profile",
         ),
         (_MONTHLY_REVENUE_ENDPOINTS, "TWSE/TPEX Monthly Revenue", "Monthly revenue"),
     ):
@@ -245,6 +280,12 @@ def fetch_twse_mops(
         items.extend(group_items)
 
     for statement_name, endpoints in _STATEMENT_ENDPOINTS.items():
+        statement_items = _fetch_statement(run_id, code, statement_name, endpoints, cap)
+        if statement_items and statement_items[0].title.startswith("Connector"):
+            continue
+        items.extend(statement_items)
+
+    for statement_name, endpoints in _TPEX_STATEMENT_ENDPOINTS.items():
         statement_items = _fetch_statement(run_id, code, statement_name, endpoints, cap)
         if statement_items and statement_items[0].title.startswith("Connector"):
             continue

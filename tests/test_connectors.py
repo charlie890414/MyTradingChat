@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -10,6 +12,8 @@ from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
 from trading_debate.connectors.google_news import fetch_google_news
+from trading_debate.connectors.market import fetch_official_valuation_data
+from trading_debate.connectors.mops import _extract_pdf_text, fetch_mops_documents
 from trading_debate.connectors.sec import fetch_sec
 from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
@@ -430,9 +434,11 @@ def test_fetch_twse_mops_returns_profile_for_taiwan_code(mock_request):
         {"公司代號": "2330", "公司名稱": "TSMC", "產業別": "半導體"}
     ]
     items = fetch_twse_mops("run-1", "2330.TW", 0)
-    assert any(item.source == "TWSE OpenAPI / MOPS" for item in items)
+    assert any(item.source == "TWSE/TPEX Official Company Profile" for item in items)
     assert any(item.title.startswith("Official Income statement") for item in items)
     assert any(item.title.startswith("Official Balance sheet") for item in items)
+    requested_urls = [call.args[0] for call in mock_request.call_args_list]
+    assert not any("t187ap04" in url for url in requested_urls)
 
 
 @patch("trading_debate.connectors.twse.request_json")
@@ -542,3 +548,80 @@ def test_fetch_finmind_accepts_company_name(mock_getenv, mock_request):
 def test_fetch_twse_mops_accepts_company_name(mock_request):
     items = fetch_twse_mops("run-1", "2330.TW", 0, company_name="台積電")
     assert not any(item.title == "Connector error" for item in items)
+
+
+@patch("trading_debate.connectors.market.request_json")
+def test_fetch_official_valuation_data_returns_twse_snapshot(mock_request):
+    mock_request.return_value = {
+        "stat": "OK",
+        "fields": ["證券代號", "本益比"],
+        "data": [["2330", "20"]],
+    }
+
+    items = fetch_official_valuation_data("run-1", "2330.TW", 10)
+
+    assert len(items) == 1
+    assert items[0].source == "TWSE Official Valuation Data"
+    assert items[0].payload["record"]["本益比"] == "20"
+
+
+@patch("trading_debate.connectors.mops.request_text", return_value="")
+@patch("trading_debate.connectors.mops.request_bytes", return_value=b"pdf")
+@patch("trading_debate.connectors.mops.request_json")
+def test_fetch_mops_documents_extracts_disclosed_pdf_text(
+    mock_request, mock_bytes, mock_text
+):
+    mock_request.side_effect = [
+        [
+            {
+                "公司代號": "2330",
+                "主旨": "法人說明會",
+                "發言日期": "1150805",
+                "說明": "https://example.com/presentation.pdf",
+            }
+        ],
+        [],
+    ]
+    fake_reader = SimpleNamespace(
+        is_encrypted=False,
+        pages=[SimpleNamespace(extract_text=lambda: "資本支出展望")],
+    )
+    with patch.dict(
+        sys.modules, {"pypdf": SimpleNamespace(PdfReader=lambda _: fake_reader)}
+    ):
+        items = fetch_mops_documents("run-1", "2330.TW", 10)
+
+    attachment = next(
+        item for item in items if item.source == "MOPS Official Attachment"
+    )
+    assert attachment.payload["document"]["state"] == "available"
+    assert attachment.payload["document"]["text"] == "資本支出展望"
+    mock_bytes.assert_called_once_with("https://example.com/presentation.pdf")
+
+
+@patch(
+    "trading_debate.connectors.mops.request_text",
+    return_value="<h1>合併現金流量表</h1>本資料由台積電公司提供 民國115年第1季",
+)
+@patch("trading_debate.connectors.mops.request_json", return_value=[])
+def test_fetch_mops_documents_adds_official_cash_flow(mock_request, mock_text):
+    items = fetch_mops_documents("run-1", "2330.TW", 10)
+
+    cash_flow = next(
+        item for item in items if item.source == "MOPS Official Financial Statements"
+    )
+    assert cash_flow.title == "Official Cash flow statement: 台積電"
+    assert cash_flow.payload["period"] == "民國115年第1季"
+    assert cash_flow.payload["form"] == "t164sb05"
+
+
+def test_extract_pdf_text_marks_empty_document_without_inference():
+    fake_reader = SimpleNamespace(
+        is_encrypted=False,
+        pages=[SimpleNamespace(extract_text=lambda: "")],
+    )
+    with patch.dict(
+        sys.modules, {"pypdf": SimpleNamespace(PdfReader=lambda _: fake_reader)}
+    ):
+        result = _extract_pdf_text(b"pdf")
+    assert result == {"state": "empty", "page_count": 1, "text": ""}

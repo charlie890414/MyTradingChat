@@ -319,7 +319,19 @@ def _select_analyst_evidence(
         selected = _deduplicate_news(selected)
     if role in {"fundamentals", "sentiment"}:
         selected = _prefer_derived_snapshots(selected)
-    return selected
+    return sorted(selected, key=_evidence_priority)
+
+
+def _evidence_priority(row: sqlite3.Row) -> tuple[int, int]:
+    """Place primary Taiwan disclosures ahead of convenience-source snapshots."""
+    source = str(row["source"])
+    if source.startswith(
+        ("MOPS ", "TWSE Official", "TPEX Official", "TWSE/TPEX Official")
+    ):
+        return (0, row["id"])
+    if source.startswith("FinMind"):
+        return (2, row["id"])
+    return (1, row["id"])
 
 
 def _matches_role(row: sqlite3.Row, role: str) -> bool:
@@ -332,7 +344,11 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
     if role == "news":
         return price_snapshot or any(
             term in text
-            for term in ("news", "material information", "disclosure profile")
+            for term in (
+                "news",
+                "mops announcement",
+                "mops attachment",
+            )
         )
     if role == "sentiment":
         return price_snapshot or any(
@@ -363,7 +379,9 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
                 "submissions",
                 "eps estimate",
                 "price target",
-                "disclosure profile",
+                "company profile",
+                "mops attachment",
+                "official valuation",
             )
         )
         or price_snapshot

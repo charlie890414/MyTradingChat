@@ -40,6 +40,23 @@ trading-debate fetch --run-id $run.run_id
 trading-debate context --run-id $run.run_id --role fundamentals
 ```
 
+## Taiwan data sources and coverage
+
+Taiwan research prioritizes public MOPS, TWSE, and TPEX data: company profiles,
+material announcements, monthly revenue, available income statements and
+balance sheets, and valuation snapshots. FinMind is a convenient supplementary
+source for cash flow, ownership flows, and standardized time series; it does
+not replace official disclosures, and material conclusions should be checked
+against the official source. `FINMIND_TOKEN` is therefore not required for the
+official Taiwan connectors.
+
+MOPS announcements retain their original disclosure page and any public PDF
+links. Text from readable PDFs is stored as evidence. Scanned or encrypted PDFs,
+documents without an attachment link, and failed downloads retain only their
+extraction status; the tool does not infer missing content. Technical prices and
+OHLCV use Yahoo Finance as the single time-series source to avoid duplicate
+official trading data.
+
 Use canonical roles when persisting work. Display names such as
 `"Fundamentals Analyst"`, `"Bull Researcher"`, and `"Investment Committee"`
 are accepted for compatibility, but are stored as canonical roles.

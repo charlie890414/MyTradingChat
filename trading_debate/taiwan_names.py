@@ -12,7 +12,6 @@ _UNVERIFIED_CTX = ssl._create_unverified_context()
 
 _PROFILE_ENDPOINTS = [
     "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
-    "https://openapi.twse.com.tw/v1/opendata/t187ap04_L",
     "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
 ]
 

@@ -21,7 +21,6 @@ def test_fetch_taiwan_company_name_returns_chinese_name(mock_request):
 def test_fetch_taiwan_company_name_falls_back_to_tpex(mock_request):
     mock_request.side_effect = [
         [],
-        [],
         [{"公司代號": "6841", "公司名稱": "台新藥股份有限公司"}],
     ]
     assert fetch_taiwan_company_name("6841.TWO") == "台新藥股份有限公司"
