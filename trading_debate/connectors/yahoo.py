@@ -9,6 +9,7 @@ import yfinance
 
 from ..models import EvidenceItem, YahooFetchResult
 from ..symbols import normalize_symbol
+from ..utils import is_recent_news
 from .technicals import _series, compute_technicals, history_to_records, resample_ohlcv
 
 
@@ -145,6 +146,8 @@ def fetch_yahoo(
             "clickThroughUrl", {}
         ).get("url")
         published = content.get("pubDate") or item.get("providerPublishTime")
+        if not is_recent_news(published):
+            continue
         items.append(
             EvidenceItem(
                 run_id=run_id,

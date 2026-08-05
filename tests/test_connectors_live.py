@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from dotenv import load_dotenv
@@ -21,6 +20,7 @@ from trading_debate.connectors.google_news import fetch_google_news
 from trading_debate.connectors.sec import fetch_sec
 from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
+from trading_debate.utils import is_recent_news
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -67,17 +67,13 @@ def test_fetch_twse_mops_live_returns_real_profile():
 def test_fetch_finmind_live_returns_real_taiwan_news_or_empty_list():
     if not os.getenv("FINMIND_TOKEN"):
         pytest.skip("Set FINMIND_TOKEN to run FinMind live integration test")
-    with patch(
-        "trading_debate.connectors.finmind.date_range_days",
-        return_value=("2024-01-02", "2024-01-02"),
-    ):
-        items = fetch_finmind("test-live", "2330", 5)
+    items = fetch_finmind("test-live", "2330", 5)
     assert len(items) > 0, "Expected at least one article from FinMind"
     news_items = [item for item in items if item.source == "FinMind TaiwanStockNews"]
-    assert news_items, "Expected at least one FinMind news item"
     for item in news_items:
         assert item.title
         assert item.url
+        assert is_recent_news(item.published_at)
 
 
 def test_fetch_finnhub_live_returns_real_company_news():

@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
-from ..utils import date_range_days, request_json
+from ..utils import NEWS_MAX_AGE_DAYS, date_range_days, is_recent_news, request_json
 
 
 def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
@@ -33,7 +33,7 @@ def fetch_finnhub(
         return [_status(run_id, "skipped", "Set FINNHUB_API_KEY to enable Finnhub.")]
 
     result: list[EvidenceItem] = []
-    start, end = date_range_days(365)
+    start, end = date_range_days(NEWS_MAX_AGE_DAYS)
 
     try:
         news = _request_finnhub(
@@ -42,7 +42,11 @@ def fetch_finnhub(
         )
         if isinstance(news, dict) and news.get("error"):
             raise RuntimeError(news["error"])
-        for article in (news or [])[:limit]:
+        news_count = 0
+        for article in news or []:
+            published_at = article.get("datetime")
+            if not is_recent_news(published_at):
+                continue
             result.append(
                 EvidenceItem(
                     run_id=run_id,
@@ -50,9 +54,12 @@ def fetch_finnhub(
                     title=article.get("headline", "Untitled article"),
                     payload=article,
                     url=article.get("url"),
-                    published_at=str(article.get("datetime") or ""),
+                    published_at=str(published_at or ""),
                 )
             )
+            news_count += 1
+            if news_count >= limit:
+                break
     except Exception as exc:
         result.append(_status(run_id, "error", f"Company news failed: {exc}"))
 

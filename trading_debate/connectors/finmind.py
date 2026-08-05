@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
-from ..utils import date_range_days, request_json
+from ..utils import date_range_days, is_recent_news, request_json
 
 _DATASETS = {
     "TaiwanStockNews": {
@@ -238,6 +238,8 @@ def fetch_finmind(
                 or f"{config['title']} for {code}"
             )
             published_at = str(row.get("date") or row.get("revenue_year_month") or "")
+            if dataset == "TaiwanStockNews" and not is_recent_news(published_at):
+                continue
             result.append(
                 EvidenceItem(
                     run_id=run_id,

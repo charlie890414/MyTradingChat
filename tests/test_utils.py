@@ -39,6 +39,14 @@ def test_date_range_days():
     assert (end_date.date() - start_date.date()).days == 365
 
 
+def test_is_recent_news_requires_a_timestamp_within_30_days():
+    now = datetime(2026, 8, 6, tzinfo=UTC)
+
+    assert td.is_recent_news("2026-07-07T00:00:00+00:00", now=now)
+    assert not td.is_recent_news("2026-07-06T23:59:59+00:00", now=now)
+    assert not td.is_recent_news(None, now=now)
+
+
 def test_request_json_builds_url_with_params():
     mock_response = MagicMock()
     mock_response.read.return_value = b'{"status": "ok"}'

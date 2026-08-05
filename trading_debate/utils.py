@@ -14,9 +14,11 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 
 __all__ = [
+    "NEWS_MAX_AGE_DAYS",
     "RequestError",
     "as_json",
     "date_range_days",
+    "is_recent_news",
     "load_dotenv",
     "request_json",
     "request_bytes",
@@ -30,6 +32,7 @@ class RequestError(RuntimeError):
 
 
 _USER_AGENT = "MyTradingChat/0.1"
+NEWS_MAX_AGE_DAYS = 30
 
 
 def utc_now() -> str:
@@ -41,6 +44,27 @@ def date_range_days(days: int = 365) -> tuple[str, str]:
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days)
     return start.isoformat(), end.isoformat()
+
+
+def is_recent_news(
+    published_at: str | int | float | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether a news item has a publication time within 30 days."""
+    if published_at is None or published_at == "":
+        return False
+    try:
+        if isinstance(published_at, int | float):
+            published = datetime.fromtimestamp(published_at, UTC)
+        else:
+            published = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=UTC)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    reference_time = now or datetime.now(UTC)
+    return published >= reference_time - timedelta(days=NEWS_MAX_AGE_DAYS)
 
 
 def as_json(value: Any) -> str:

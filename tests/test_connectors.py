@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -27,7 +28,13 @@ def test_fetch_yahoo_returns_result_with_items():
     mock_ticker.get_info.return_value = {"currentPrice": 150.0}
     mock_ticker.history.return_value = history
     mock_ticker.get_news.return_value = [
-        {"content": {"title": "News 1", "pubDate": "2026-01-01"}}
+        {
+            "content": {
+                "title": "News 1",
+                "pubDate": datetime.now(UTC).isoformat(),
+            }
+        },
+        {"content": {"title": "Old news", "pubDate": "2020-01-01"}},
     ]
 
     result = fetch_yahoo("run-1", "AAPL", 10, ticker=mock_ticker)
@@ -35,6 +42,7 @@ def test_fetch_yahoo_returns_result_with_items():
     assert result.price["close"] is not None
     assert len(result.items) >= 4
     assert any(item.source == "Yahoo Finance News" for item in result.items)
+    assert not any(item.title == "Old news" for item in result.items)
     daily = next(item for item in result.items if item.title == "Daily OHLCV history")
     assert daily.payload["price_adjustment"]
     assert any(item.title == "Weekly adjusted OHLCV history" for item in result.items)
@@ -54,6 +62,8 @@ def test_fetch_yahoo_uses_injected_ticker():
 
 @patch("trading_debate.connectors.google_news.feedparser")
 def test_fetch_google_news_returns_items(mock_feedparser):
+    recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    old = (datetime.now(UTC) - timedelta(days=31)).strftime("%a, %d %b %Y %H:%M:%S GMT")
     mock_feedparser.parse.return_value = type(
         "Feed",
         (),
@@ -62,21 +72,21 @@ def test_fetch_google_news_returns_items(mock_feedparser):
                 {
                     "title": "Apple hits new high",
                     "link": "https://example.com/1",
-                    "published": "Mon, 28 Jul 2026 10:00:00 GMT",
+                    "published": recent,
                     "summary": "Apple stock reaches record.",
                     "source": {"title": "Reuters", "href": "https://reuters.com"},
                 },
                 {
                     "title": "iPhone sales surge",
                     "link": "https://example.com/2",
-                    "published": "",
+                    "published": old,
                     "summary": "Sales top estimates.",
                 },
             ]
         },
     )()
     items = fetch_google_news("run-1", "AAPL", 10)
-    assert len(items) == 2
+    assert len(items) == 1
     assert items[0].source == "Google News RSS"
     assert items[0].title == "Apple hits new high"
     assert items[0].url == "https://example.com/1"
@@ -85,6 +95,7 @@ def test_fetch_google_news_returns_items(mock_feedparser):
 
 @patch("trading_debate.connectors.bing_news.feedparser")
 def test_fetch_bing_news_returns_items(mock_feedparser):
+    recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
     mock_feedparser.parse.return_value = type(
         "Feed",
         (),
@@ -93,13 +104,13 @@ def test_fetch_bing_news_returns_items(mock_feedparser):
                 {
                     "title": "Microsoft earnings beat",
                     "link": "https://example.com/1",
-                    "published": "Mon, 28 Jul 2026 14:00:00 GMT",
+                    "published": recent,
                     "summary": "MSFT reports strong quarter.",
                 },
                 {
                     "title": "Azure growth accelerates",
                     "link": "https://example.com/2",
-                    "published": "Mon, 28 Jul 2026 15:00:00 GMT",
+                    "published": recent,
                     "summary": "Cloud revenue up 30%.",
                 },
             ]
@@ -110,6 +121,34 @@ def test_fetch_bing_news_returns_items(mock_feedparser):
     assert items[0].source == "Bing News RSS"
     assert items[0].title == "Microsoft earnings beat"
     assert items[0].url == "https://example.com/1"
+
+
+@patch("trading_debate.connectors.bing_news.feedparser")
+def test_fetch_bing_news_skips_items_older_than_30_days(mock_feedparser):
+    recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    old = (datetime.now(UTC) - timedelta(days=31)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    mock_feedparser.parse.return_value = type(
+        "Feed",
+        (),
+        {
+            "entries": [
+                {
+                    "title": "Old Microsoft article",
+                    "link": "https://example.com/old",
+                    "published": old,
+                },
+                {
+                    "title": "Recent Microsoft article",
+                    "link": "https://example.com/recent",
+                    "published": recent,
+                },
+            ]
+        },
+    )()
+
+    items = fetch_bing_news("run-1", "MSFT", 10)
+
+    assert [item.title for item in items] == ["Recent Microsoft article"]
 
 
 @patch("trading_debate.connectors.google_news.feedparser")
@@ -150,12 +189,17 @@ def test_fetch_google_news_disambiguates_short_us_ticker(mock_feedparser):
 
 @patch("trading_debate.connectors.google_news.feedparser")
 def test_fetch_google_news_respects_limit(mock_feedparser):
+    recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
     mock_feedparser.parse.return_value = type(
         "Feed",
         (),
         {
             "entries": [
-                {"title": f"Article {i}", "link": f"https://e.com/{i}", "published": ""}
+                {
+                    "title": f"Article {i}",
+                    "link": f"https://e.com/{i}",
+                    "published": recent,
+                }
                 for i in range(20)
             ]
         },
@@ -201,12 +245,17 @@ def test_fetch_bing_news_disambiguates_short_us_ticker(mock_feedparser):
 
 @patch("trading_debate.connectors.bing_news.feedparser")
 def test_fetch_bing_news_respects_limit(mock_feedparser):
+    recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
     mock_feedparser.parse.return_value = type(
         "Feed",
         (),
         {
             "entries": [
-                {"title": f"Article {i}", "link": f"https://e.com/{i}", "published": ""}
+                {
+                    "title": f"Article {i}",
+                    "link": f"https://e.com/{i}",
+                    "published": recent,
+                }
                 for i in range(15)
             ]
         },
@@ -224,7 +273,7 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
             {
                 "headline": "Finnhub article",
                 "url": "https://example.com",
-                "datetime": 1704067200,
+                "datetime": int(datetime.now(UTC).timestamp()),
             }
         ],
         {"metric": {"grossMarginTTM": 0.5}},
@@ -265,7 +314,7 @@ def test_fetch_finmind_returns_items_for_taiwan_code(mock_request, mock_getenv):
                 {
                     "title": "Taiwan news",
                     "link": "https://example.com",
-                    "date": "2026-01-01",
+                    "date": datetime.now(UTC).date().isoformat(),
                 }
             ],
         },

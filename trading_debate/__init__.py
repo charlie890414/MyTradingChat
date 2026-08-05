@@ -20,9 +20,11 @@ from .symbols import (
     taiwan_code,
 )
 from .utils import (
+    NEWS_MAX_AGE_DAYS,
     RequestError,
     as_json,
     date_range_days,
+    is_recent_news,
     load_dotenv,
     request_json,
     utc_now,
@@ -31,6 +33,7 @@ from .utils import (
 __all__ = [
     "CONNECTORS",
     "EvidenceItem",
+    "NEWS_MAX_AGE_DAYS",
     "RequestError",
     "YahooFetchResult",
     "as_json",
@@ -50,6 +53,7 @@ __all__ = [
     "date_range_days",
     "fetch_yahoo",
     "history_to_records",
+    "is_recent_news",
     "insert_evidence",
     "insert_evidence_item",
     "insert_evidence_items",

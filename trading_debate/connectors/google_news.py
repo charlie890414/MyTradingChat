@@ -9,6 +9,7 @@ from urllib.parse import quote
 import feedparser
 
 from ..models import EvidenceItem
+from ..utils import is_recent_news
 
 _QUERY = "+stock"
 _URL = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
@@ -33,8 +34,11 @@ def fetch_google_news(
         _URL.format(q=query), agent="MyTradingChat/0.1", request_headers={}
     )
     items: list[EvidenceItem] = []
-    for entry in feed.entries[:limit]:
+    for entry in feed.entries:
         published_at = entry.get("published") or entry.get("updated", "")
+        parsed_published_at = _parse_rss_date(published_at)
+        if not is_recent_news(parsed_published_at):
+            continue
         items.append(
             EvidenceItem(
                 run_id=run_id,
@@ -49,7 +53,9 @@ def fetch_google_news(
                     "source_url": entry.get("source", {}).get("href", ""),
                 },
                 url=entry.get("link"),
-                published_at=_parse_rss_date(published_at),
+                published_at=parsed_published_at,
             )
         )
+        if len(items) >= limit:
+            break
     return items
