@@ -80,7 +80,10 @@
             <a class="symbol" href="/runs/{{ row['id'] | urlencode }}">{{ row['symbol'] }}</a>
           </td>
           <td>{{ row['question'] }}</td>
-            <td class="timestamps"><span>建檔 {{ row['created_at'] }}</span><span>證據 {{ row['latest_evidence_at'] or '尚無證據' }}</span></td>
+            <td class="timestamps">
+              <span>建檔 <time class="local-time" datetime="{{ row['created_at'] }}">{{ row['created_at'] }}</time></span>
+              <span>證據 {% if row['latest_evidence_at'] %}<time class="local-time" datetime="{{ row['latest_evidence_at'] }}">{{ row['latest_evidence_at'] }}</time>{% else %}尚無證據{% endif %}</span>
+            </td>
           <td>{{ badge(row['status'], 'status') | safe }}</td>
           <td>{{ badge(row['verdict'], 'verdict') | safe }}</td>
           <td>{{ row['confidence'] or '—' }}</td>
@@ -117,8 +120,8 @@
       </div>
       <div class="mobile-body">
         <div class="row"><span class="label">問題</span>{{ row['question'] }}</div>
-        <div class="row"><span class="label">建檔時間</span>{{ row['created_at'] }}</div>
-        <div class="row"><span class="label">證據更新</span>{{ row['latest_evidence_at'] or '尚無證據' }}</div>
+        <div class="row"><span class="label">建檔時間</span><time class="local-time" datetime="{{ row['created_at'] }}">{{ row['created_at'] }}</time></div>
+        <div class="row"><span class="label">證據更新</span>{% if row['latest_evidence_at'] %}<time class="local-time" datetime="{{ row['latest_evidence_at'] }}">{{ row['latest_evidence_at'] }}</time>{% else %}尚無證據{% endif %}</div>
         <div class="row"><span class="label">狀態</span>{{ badge(row['status'], 'status') | safe }}</div>
         <div class="row"><span class="label">評等</span>{{ badge(row['verdict'], 'verdict') | safe }}</div>
         <div class="row"><span class="label">信心</span>{{ row['confidence'] or '—' }}</div>

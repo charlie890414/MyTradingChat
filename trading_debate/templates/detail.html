@@ -19,8 +19,8 @@
     </ol>
     <dl class="case-facts">
       <div><dt>研究 ID</dt><dd>{{ run_id }}</dd></div>
-      <div><dt>建檔時間</dt><dd>{{ created_at }}</dd></div>
-      <div><dt>證據更新</dt><dd>{{ latest_evidence or '尚無證據' }}</dd></div>
+      <div><dt>建檔時間</dt><dd><time class="local-time" datetime="{{ created_at }}">{{ created_at }}</time></dd></div>
+      <div><dt>證據更新</dt><dd>{% if latest_evidence %}<time class="local-time" datetime="{{ latest_evidence }}">{{ latest_evidence }}</time>{% else %}尚無證據{% endif %}</dd></div>
       <div><dt>信心</dt><dd>{{ confidence or '未評定' }}</dd></div>
       <div><dt>預定回合</dt><dd>{{ debate_rounds }}</dd></div>
     </dl>
@@ -74,7 +74,7 @@
   {% for item in evidence %}
   <details class="record evidence-record">
     <summary><span class="evidence-id">{{ evidence_reference(item['id']) }}</span>{{ item['source'] }}｜{{ item['title'] }} <span>展開內容</span></summary>
-    <p class="record-meta">發布 {{ item['published_at'] or '未知' }}　擷取 {{ item['fetched_at'] }}</p>
+    <p class="record-meta">發布 {% if item['published_at'] %}<time class="local-time" datetime="{{ item['published_at'] }}">{{ item['published_at'] }}</time>{% else %}未知{% endif %}　擷取 <time class="local-time" datetime="{{ item['fetched_at'] }}">{{ item['fetched_at'] }}</time></p>
     {% if item['url'] %}
     <p><a class="source-link" href="{{ item['url'] }}" target="_blank" rel="noreferrer">開啟來源 ↗</a></p>
     {% endif %}

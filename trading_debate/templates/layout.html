@@ -79,6 +79,19 @@
     m.addEventListener('click', e => {
       if (e.target === m) m.classList.remove('open');
     });
+
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const localFormatter = new Intl.DateTimeFormat('zh-TW', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    document.querySelectorAll('time.local-time').forEach(time => {
+      const date = new Date(time.dateTime);
+      if (Number.isNaN(date.getTime())) return;
+      time.textContent = localFormatter.format(date);
+      time.title = 'UTC: ' + time.dateTime + ' · ' + timezone;
+    });
   </script>
 </body>
 </html>

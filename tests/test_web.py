@@ -52,6 +52,7 @@ def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path
     assert "已完成" in page
     assert "證據" in page
     assert "RESEARCH LEDGER" in page
+    assert 'class="local-time"' in page
 
 
 def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path):
@@ -101,6 +102,8 @@ def test_ui_delete_removes_run_specific_report_directory(tmp_path: Path):
 def test_layout_links_to_static_stylesheet():
     page = _layout("歷史研究", "")
     assert '<link rel="stylesheet" href="/static/style.css">' in page
+    assert "Intl.DateTimeFormat('zh-TW'" in page
+    assert "time.local-time" in page
 
 
 def test_history_list_uses_responsive_register_layout():
@@ -166,6 +169,7 @@ def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
     assert "CHAIN OF CUSTODY" in page
     assert "專家分析" in page
     assert "EVID-0001" in page
+    assert 'class="local-time"' in page
 
 
 def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):
