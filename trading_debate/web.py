@@ -215,6 +215,44 @@ class ResearchApp(BaseHTTPRequestHandler):
             if run["report_path"]
             else "<span class='muted'>尚未產生報表</span>"
         )
+        actor_labels = {
+            "fundamentals": "基本面分析",
+            "technical": "技術面分析",
+            "news": "新聞與事件分析",
+            "sentiment": "情緒分析",
+            "bull": "多方觀點",
+            "bear": "空方觀點",
+            "committee": "投資委員會結論",
+        }
+        evidence_batches: dict[str, int] = {}
+        for item in evidence:
+            fetched_at = item["fetched_at"]
+            evidence_batches[fetched_at] = evidence_batches.get(fetched_at, 0) + 1
+        timeline = [
+            {"at": run["created_at"], "label": "建立研究", "detail": run["symbol"]},
+            *[
+                {
+                    "at": fetched_at,
+                    "label": "擷取證據",
+                    "detail": f"{count} 筆證據",
+                }
+                for fetched_at, count in evidence_batches.items()
+            ],
+            *[
+                {
+                    "at": item["created_at"],
+                    "label": "保存研究內容",
+                    "detail": (
+                        f"第 {item['round_no']} 回合｜"
+                        f"{actor_labels.get(item['actor'], item['actor'])}"
+                        if item["stage"] == "debate"
+                        else actor_labels.get(item["actor"], item["actor"])
+                    ),
+                }
+                for item in parts
+            ],
+        ]
+        timeline.sort(key=lambda item: item["at"])
         self._send(
             HTTPStatus.OK,
             _layout(
@@ -234,6 +272,7 @@ class ResearchApp(BaseHTTPRequestHandler):
                     debates=[item for item in parts if item["stage"] == "debate"],
                     verdicts=[item for item in parts if item["stage"] == "verdict"],
                     latest_evidence=latest_evidence,
+                    timeline=timeline,
                 ),
             ),
         )

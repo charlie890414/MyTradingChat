@@ -129,7 +129,8 @@ def test_history_list_includes_mobile_card_view(tmp_path: Path):
     assert "mobile-card" in page
     assert "NVDA" in page
     assert "data-delete='run-1'" in page
-    assert "證據更新" in page
+    assert "建檔時間" in page
+    assert "證據更新" not in page
 
 
 def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
@@ -164,6 +165,13 @@ def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
             debates=[],
             verdicts=[],
             latest_evidence=evidence[0]["fetched_at"],
+            timeline=[
+                {
+                    "at": run["created_at"],
+                    "label": "建立研究",
+                    "detail": run["symbol"],
+                }
+            ],
         ),
     )
 
@@ -171,6 +179,7 @@ def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
     assert "專家分析" in page
     assert "EVID-0001" in page
     assert 'class="local-time"' in page
+    assert "RESEARCH TIMELINE" in page
 
 
 def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):

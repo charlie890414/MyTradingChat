@@ -97,7 +97,7 @@ th { padding: 13px 11px; color: var(--muted); font: 700 10px/1.3 ui-monospace, m
 td { padding: 17px 11px; border-top: 1px solid var(--rule); vertical-align: top; }
 tbody tr { transition: background 150ms ease; }
 tbody tr:hover { background: #e8ede6; }
-th:nth-child(1) { width: 38px; } th:nth-child(2) { width: 86px; } th:nth-child(3) { width: 25%; } th:nth-child(4) { width: 202px; } th:nth-child(5) { width: 84px; } th:nth-child(6) { width: 74px; } th:nth-child(7) { width: 82px; } th:nth-child(8) { width: 150px; }
+th:nth-child(1) { width: 38px; } th:nth-child(2) { width: 86px; } th:nth-child(3) { width: 25%; } th:nth-child(4) { width: 125px; } th:nth-child(5) { width: 84px; } th:nth-child(6) { width: 74px; } th:nth-child(7) { width: 82px; } th:nth-child(8) { width: 150px; }
 .symbol { color: var(--ink); font: 700 18px/1.2 ui-monospace, monospace; text-decoration: none; }
 .symbol:hover { color: var(--blue); }
 .timestamps { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -128,6 +128,16 @@ th:nth-child(1) { width: 38px; } th:nth-child(2) { width: 86px; } th:nth-child(3
 .case-facts div { margin: 0 0 12px; }
 .case-facts dt { color: var(--muted); font: 700 10px/1.3 ui-monospace, monospace; letter-spacing: 0.08em; }
 .case-facts dd { margin: 3px 0 0; font: 12px/1.4 ui-monospace, monospace; overflow-wrap: anywhere; }
+.research-timeline { margin: 28px 0; padding-top: 17px; border-top: 1px solid var(--rule); }
+.research-timeline .eyebrow { margin-bottom: 13px; color: var(--blue); }
+.research-timeline ol { margin: 0; padding: 0 0 0 13px; border-left: 1px solid var(--rule); list-style: none; }
+.research-timeline li { position: relative; padding: 0 0 15px 13px; }
+.research-timeline li::before { position: absolute; top: 4px; left: -5px; width: 8px; height: 8px; border: 2px solid var(--blue); border-radius: 50%; background: var(--paper); content: ""; }
+.research-timeline li:last-child { padding-bottom: 0; }
+.research-timeline time, .research-timeline strong, .research-timeline span { display: block; }
+.research-timeline time { color: var(--muted); font: 10px/1.4 ui-monospace, monospace; }
+.research-timeline strong { margin-top: 2px; color: var(--ink); font-size: 12px; }
+.research-timeline span { color: var(--muted); font-size: 11px; }
 .rail-report .button { width: 100%; color: var(--paper-bright); font-size: 12px; }
 .rail-report .button:hover { color: var(--paper-bright); }
 .case-content > section + section { margin-top: 60px; }

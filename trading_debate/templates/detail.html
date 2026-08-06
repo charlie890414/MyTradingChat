@@ -24,6 +24,18 @@
       <div><dt>信心</dt><dd>{{ confidence or '未評定' }}</dd></div>
       <div><dt>預定回合</dt><dd>{{ debate_rounds }}</dd></div>
     </dl>
+    <section class="research-timeline" aria-labelledby="timeline-title">
+      <p class="eyebrow" id="timeline-title">RESEARCH TIMELINE</p>
+      <ol>
+        {% for event in timeline %}
+        <li>
+          <time class="local-time" datetime="{{ event['at'] }}">{{ event['at'] }}</time>
+          <strong>{{ event['label'] }}</strong>
+          <span>{{ event['detail'] }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
     <div class="rail-report">{{ report | safe }}</div>
   </aside>
 
