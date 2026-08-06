@@ -7,25 +7,31 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="nav">
-    <div class="nav-inner">
-      <a class="brand" href="/">My<span>Trading</span>Chat</a>
+  <header class="site-header">
+    <div class="shell site-header-inner">
+      <a class="brand" href="/" aria-label="MyTradingChat 研究檔案庫首頁">
+        <span class="brand-mark" aria-hidden="true">MTC</span>
+        <span>MyTradingChat</span>
+      </a>
+      <p class="archive-label">LOCAL RESEARCH ARCHIVE</p>
     </div>
   </header>
-  <main class="page">
-    <div class="notice">
-      歷史研究僅供脈絡參考；價格、指標與新聞可能已過時，不能視為目前建議。
+  <main class="shell page">
+    <div class="historical-notice" role="note">
+      <span class="notice-mark" aria-hidden="true">!</span>
+      <p><strong>歷史研究檔案</strong> 價格、指標與新聞可能已過時，請以證據擷取時間判讀，不可視為目前建議。</p>
     </div>
     {{ content | safe }}
   </main>
   <div class="modal" id="delete-modal" aria-hidden="true">
     <form class="dialog" method="post" id="delete-form">
+      <p class="eyebrow danger-text">永久操作</p>
       <h2>刪除研究</h2>
       <p>這將永久刪除研究、證據、分析、辯論及報表目錄，無法復原。</p>
       <p id="delete-question"></p>
       <p class="run-id" id="delete-run-id"></p>
       <div class="dialog-actions">
-        <button class="secondary" type="button" data-close-modal>取消</button>
+        <button class="button secondary" type="button" data-close-modal>取消</button>
         <button class="danger" type="submit">確認刪除</button>
       </div>
     </form>

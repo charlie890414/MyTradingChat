@@ -1,18 +1,25 @@
-<h1>歷史研究</h1>
-<p class="subtle">集中檢視已保存的研究、證據與委員會結論。</p>
+<section class="archive-hero">
+  <p class="eyebrow">RESEARCH LEDGER</p>
+  <h1>研究不是結論，<br>是可回查的證據鏈。</h1>
+  <p class="lede">檢視已保存的台美股研究，沿著證據、觀點交鋒與委員會結論回到每個判斷的來源。</p>
+</section>
 
 {% if message %}
 <div class="notice success">{{ message }}</div>
 {% endif %}
 
-<div class="cards">
-  <div class="card"><b>{{ total }}</b><span>全部研究</span></div>
+<div class="ledger-summary" aria-label="研究檔案統計">
+  <div class="summary-total"><b>{{ total }}</b><span>已保存研究</span></div>
   {% for key, count in status_counts %}
-  <div class="card"><b>{{ count }}</b><span>{{ key }}</span></div>
+  <div class="summary-item"><b>{{ count }}</b><span>{{ badge(key, 'status') | safe }}</span></div>
   {% endfor %}
 </div>
 
-<section class="panel">
+<section class="filter-panel" aria-labelledby="filter-title">
+  <div>
+    <p class="eyebrow">FIND A RESEARCH RUN</p>
+    <h2 id="filter-title">搜尋檔案</h2>
+  </div>
   <form class="filters" method="get">
     <label class="field">
       搜尋
@@ -32,16 +39,21 @@
         {{ verdict_options | safe }}
       </select>
     </label>
-    <button>篩選研究</button>
+    <button class="button" type="submit">套用篩選</button>
   </form>
 </section>
 
-<form class="panel" method="post" action="/runs/delete">
-  <div class="actions">
-    <label><input type="checkbox" data-select-all> 全選</label>
-    <strong data-selected-count>已選取 0 筆</strong>
-    <label>輸入 <code>DELETE N</code> 確認<input name="confirm" placeholder="例如 DELETE 2"></label>
-    <button class="danger" data-delete-selected disabled>刪除已選取項目</button>
+<form class="research-register" method="post" action="/runs/delete">
+  <div class="register-heading">
+    <div>
+      <p class="eyebrow">ARCHIVE REGISTER</p>
+      <h2>研究清冊</h2>
+    </div>
+    <div class="bulk-actions">
+      <label><input type="checkbox" data-select-all> 全選</label>
+      <strong data-selected-count>已選取 0 筆</strong>
+      <button class="button danger" data-delete-selected disabled>刪除已選取項目</button>
+    </div>
   </div>
 
   <div class="table-wrap">
@@ -51,11 +63,11 @@
           <th></th>
           <th>代號</th>
           <th>問題</th>
-          <th>建立時間</th>
+          <th>研究／證據時間</th>
           <th>狀態</th>
           <th>評等</th>
           <th>信心</th>
-          <th>操作</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -68,17 +80,17 @@
             <a class="symbol" href="/runs/{{ row['id'] | urlencode }}">{{ row['symbol'] }}</a>
           </td>
           <td>{{ row['question'] }}</td>
-          <td>{{ row['created_at'] }}</td>
+            <td class="timestamps"><span>建檔 {{ row['created_at'] }}</span><span>證據 {{ row['latest_evidence_at'] or '尚無證據' }}</span></td>
           <td>{{ badge(row['status'], 'status') | safe }}</td>
           <td>{{ badge(row['verdict'], 'verdict') | safe }}</td>
           <td>{{ row['confidence'] or '—' }}</td>
           <td>
             <div class="actions">
-              <a class="button secondary" href="/runs/{{ row['id'] | urlencode }}">查看</a>
-              <button class="danger" type="button"
+              <a class="text-action" href="/runs/{{ row['id'] | urlencode }}">開啟檔案 <span aria-hidden="true">→</span></a>
+              <button class="button danger icon-action" type="button"
                 data-delete='{{ row["id"] }}'
                 data-symbol='{{ row["symbol"] }}'
-                data-question='{{ row["question"] }}'>🗑 刪除</button>
+                data-question='{{ row["question"] }}' aria-label="刪除 {{ row['symbol'] }} 研究">刪除</button>
             </div>
           </td>
         </tr>
@@ -96,16 +108,17 @@
         <input type="checkbox" name="run_id" value="{{ row['id'] }}" data-select-run>
         <a class="symbol" href="/runs/{{ row['id'] | urlencode }}">{{ row['symbol'] }}</a>
         <div class="actions">
-          <a class="button secondary" href="/runs/{{ row['id'] | urlencode }}">查看</a>
-          <button class="danger" type="button"
+          <a class="text-action" href="/runs/{{ row['id'] | urlencode }}">開啟</a>
+          <button class="button danger icon-action" type="button"
             data-delete='{{ row["id"] }}'
             data-symbol='{{ row["symbol"] }}'
-            data-question='{{ row["question"] }}'>🗑 刪除</button>
+            data-question='{{ row["question"] }}' aria-label="刪除 {{ row['symbol'] }} 研究">刪除</button>
         </div>
       </div>
       <div class="mobile-body">
         <div class="row"><span class="label">問題</span>{{ row['question'] }}</div>
-        <div class="row"><span class="label">建立時間</span>{{ row['created_at'] }}</div>
+        <div class="row"><span class="label">建檔時間</span>{{ row['created_at'] }}</div>
+        <div class="row"><span class="label">證據更新</span>{{ row['latest_evidence_at'] or '尚無證據' }}</div>
         <div class="row"><span class="label">狀態</span>{{ badge(row['status'], 'status') | safe }}</div>
         <div class="row"><span class="label">評等</span>{{ badge(row['verdict'], 'verdict') | safe }}</div>
         <div class="row"><span class="label">信心</span>{{ row['confidence'] or '—' }}</div>

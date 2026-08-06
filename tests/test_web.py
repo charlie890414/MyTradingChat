@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import trading_debate as td
-from trading_debate.web import ResearchApp, _layout, _resolve_report_path
+from trading_debate.web import ResearchApp, _env, _layout, _resolve_report_path
 
 
 def _insert_run(db_path: Path, report_path: Path | None = None) -> None:
@@ -49,7 +49,9 @@ def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path
     assert "delete-modal" in page
     assert "確認刪除" in page
     assert "狀態" in page
-    assert "completed" in page
+    assert "已完成" in page
+    assert "證據" in page
+    assert "RESEARCH LEDGER" in page
 
 
 def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path):
@@ -101,15 +103,15 @@ def test_layout_links_to_static_stylesheet():
     assert '<link rel="stylesheet" href="/static/style.css">' in page
 
 
-def test_history_list_layout_allocates_space_for_confidence_and_actions():
+def test_history_list_uses_responsive_register_layout():
     style_path = (
         Path(__file__).parent.parent / "trading_debate" / "static" / "style.css"
     )
     style = style_path.read_text(encoding="utf-8")
-    assert "width: 85px" in style
-    assert "width: 160px" in style
-    assert "overflow-wrap: anywhere" in style
-    assert "flex-wrap: wrap" in style
+    assert ".research-register" in style
+    assert ".mobile-list" in style
+    assert "@media (max-width: 760px)" in style
+    assert "prefers-reduced-motion" in style
 
 
 def test_history_list_includes_mobile_card_view(tmp_path: Path):
@@ -123,6 +125,47 @@ def test_history_list_includes_mobile_card_view(tmp_path: Path):
     assert "mobile-card" in page
     assert "NVDA" in page
     assert "data-delete='run-1'" in page
+    assert "證據更新" in page
+
+
+def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    app = object.__new__(ResearchApp)
+    app.db_path = db_path
+    app.reports_path = tmp_path / "reports"
+
+    with td.connect(db_path) as con:
+        run = con.execute("SELECT * FROM runs WHERE id = ?", ("run-1",)).fetchone()
+        evidence = con.execute(
+            "SELECT * FROM evidence WHERE run_id = ?", ("run-1",)
+        ).fetchall()
+        parts = con.execute(
+            "SELECT * FROM contributions WHERE run_id = ?", ("run-1",)
+        ).fetchall()
+    page = _layout(
+        "NVDA 歷史研究",
+        _env.get_template("detail.html").render(
+            run_id="run-1",
+            symbol=run["symbol"],
+            question=run["question"],
+            created_at=run["created_at"],
+            status=run["status"],
+            verdict=run["verdict"],
+            confidence=run["confidence"],
+            debate_rounds=run["debate_rounds"],
+            report="",
+            evidence=evidence,
+            analyses=[item for item in parts if item["stage"] == "analysis"],
+            debates=[],
+            verdicts=[],
+            latest_evidence=evidence[0]["fetched_at"],
+        ),
+    )
+
+    assert "CHAIN OF CUSTODY" in page
+    assert "專家分析" in page
+    assert "EVID-0001" in page
 
 
 def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):

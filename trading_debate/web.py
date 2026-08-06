@@ -34,7 +34,16 @@ def _escape(value: object) -> str:
 
 
 def _badge(value: str | None, kind: str) -> str:
-    label = value or "未評等"
+    labels = {
+        "active": "進行中",
+        "incomplete": "未完成",
+        "completed": "已完成",
+        "failed": "失敗",
+        "buy": "買入",
+        "hold": "持有",
+        "reduce": "減碼",
+    }
+    label = labels.get(value or "", "未評等")
     return f'<span class="badge {kind}-{_escape(value or "abstain")}">{_escape(label)}</span>'
 
 
@@ -157,9 +166,14 @@ class ResearchApp(BaseHTTPRequestHandler):
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with connect(self.db_path) as con:
             rows = con.execute(
-                "SELECT id, symbol, question, created_at, status, verdict, confidence, report_path FROM runs"
+                "SELECT runs.id, runs.symbol, runs.question, runs.created_at, "
+                "runs.status, runs.verdict, runs.confidence, runs.report_path, "
+                "latest_evidence.fetched_at AS latest_evidence_at "
+                "FROM runs LEFT JOIN ("
+                "SELECT run_id, MAX(fetched_at) AS fetched_at FROM evidence GROUP BY run_id"
+                ") AS latest_evidence ON latest_evidence.run_id = runs.id"
                 + where
-                + " ORDER BY created_at DESC LIMIT 100",
+                + " ORDER BY runs.created_at DESC LIMIT 100",
                 values,
             ).fetchall()
             counts = dict(
@@ -187,6 +201,9 @@ class ResearchApp(BaseHTTPRequestHandler):
             parts = con.execute(
                 "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", (run_id,)
             ).fetchall()
+            latest_evidence = con.execute(
+                "SELECT MAX(fetched_at) FROM evidence WHERE run_id = ?", (run_id,)
+            ).fetchone()[0]
         if not run:
             self._send(
                 HTTPStatus.NOT_FOUND,
@@ -213,7 +230,10 @@ class ResearchApp(BaseHTTPRequestHandler):
                     debate_rounds=run["debate_rounds"],
                     report=report,
                     evidence=evidence,
-                    parts=parts,
+                    analyses=[item for item in parts if item["stage"] == "analysis"],
+                    debates=[item for item in parts if item["stage"] == "debate"],
+                    verdicts=[item for item in parts if item["stage"] == "verdict"],
+                    latest_evidence=latest_evidence,
                 ),
             ),
         )

@@ -1,40 +1,82 @@
-<p><a href="/">← 返回歷史研究</a></p>
-<h1>{{ symbol }}</h1>
-<p class="subtle">{{ question }}</p>
+<p class="back-link"><a href="/">← 返回研究清冊</a></p>
+<section class="case-header">
+  <div>
+    <p class="eyebrow">RESEARCH CASE FILE</p>
+    <h1>{{ symbol }}</h1>
+    <p class="lede">{{ question }}</p>
+  </div>
+  <div class="case-verdict">{{ badge(status, 'status') | safe }} {{ badge(verdict, 'verdict') | safe }}</div>
+</section>
 
-<div class="meta">
-  <div class="card">
-    <span>研究 ID</span>
-    <b>{{ run_id }}</b>
-  </div>
-  <div class="card">
-    <span>建立時間</span>
-    <b>{{ created_at }}</b>
-  </div>
-  <div class="card">
-    <span>狀態／評等</span>
-    <b>{{ badge(status, 'status') | safe }} {{ badge(verdict, 'verdict') | safe }}</b>
-  </div>
-  <div class="card">
-    <span>信心</span>
-    <b>{{ confidence or '—' }}</b>
-  </div>
-  <div class="card">
-    <span>預定辯論回合</span>
-    <b>{{ debate_rounds }}</b>
-  </div>
-</div>
+<div class="case-layout">
+  <aside class="evidence-rail" aria-label="研究流程">
+    <p class="eyebrow">CHAIN OF CUSTODY</p>
+    <ol>
+      <li><a href="#evidence">證據包 <span>{{ evidence | length }}</span></a></li>
+      <li><a href="#analysis">專家分析 <span>{{ analyses | length }}</span></a></li>
+      <li><a href="#debate">多空辯論 <span>{{ debates | length }}</span></a></li>
+      <li><a href="#verdict">委員會 <span>{{ verdicts | length }}</span></a></li>
+    </ol>
+    <dl class="case-facts">
+      <div><dt>研究 ID</dt><dd>{{ run_id }}</dd></div>
+      <div><dt>建檔時間</dt><dd>{{ created_at }}</dd></div>
+      <div><dt>證據更新</dt><dd>{{ latest_evidence or '尚無證據' }}</dd></div>
+      <div><dt>信心</dt><dd>{{ confidence or '未評定' }}</dd></div>
+      <div><dt>預定回合</dt><dd>{{ debate_rounds }}</dd></div>
+    </dl>
+    <div class="rail-report">{{ report | safe }}</div>
+  </aside>
 
-<p>{{ report | safe }}</p>
+  <div class="case-content">
+  <section id="verdict" class="verdict-section">
+    <p class="eyebrow">INVESTMENT COMMITTEE</p>
+    <h2>委員會結論</h2>
+    {% for item in verdicts %}
+    <details class="record verdict-record" open>
+      <summary>投資委員會意見 <span>展開內容</span></summary>
+      <pre>{{ item['content'] }}</pre>
+    </details>
+    {% else %}
+    <p class="empty-note">尚未保存委員會結論。</p>
+    {% endfor %}
+  </section>
 
-<h2>證據包</h2>
+  <section id="analysis" class="case-section">
+    <p class="eyebrow">INDEPENDENT READS</p>
+    <h2>專家分析</h2>
+    {% for item in analyses %}
+    <details class="record analysis-record">
+      <summary>{{ item['actor'] }} 分析 <span>展開內容</span></summary>
+      <pre>{{ item['content'] }}</pre>
+    </details>
+    {% else %}
+    <p class="empty-note">尚未保存專家分析。</p>
+    {% endfor %}
+  </section>
+
+  <section id="debate" class="case-section">
+    <p class="eyebrow">THESIS UNDER PRESSURE</p>
+    <h2>多空辯論</h2>
+    {% for item in debates %}
+    <details class="record debate-record {{ item['actor'] }}">
+      <summary>第 {{ item['round_no'] }} 回合｜{{ '多方觀點' if item['actor'] == 'bull' else '空方觀點' }} <span>展開內容</span></summary>
+      <pre>{{ item['content'] }}</pre>
+    </details>
+    {% else %}
+    <p class="empty-note">尚未保存多空辯論。</p>
+    {% endfor %}
+  </section>
+
+  <section id="evidence" class="case-section evidence-section">
+    <p class="eyebrow">SOURCE RECORD</p>
+    <h2>證據包</h2>
 {% if evidence %}
   {% for item in evidence %}
-  <details>
-    <summary>[{{ evidence_reference(item['id']) }}] {{ item['source'] }} — {{ item['title'] }}</summary>
-    <p class="muted">發布：{{ item['published_at'] or '未知' }}｜擷取：{{ item['fetched_at'] }}</p>
+  <details class="record evidence-record">
+    <summary><span class="evidence-id">{{ evidence_reference(item['id']) }}</span>{{ item['source'] }}｜{{ item['title'] }} <span>展開內容</span></summary>
+    <p class="record-meta">發布 {{ item['published_at'] or '未知' }}　擷取 {{ item['fetched_at'] }}</p>
     {% if item['url'] %}
-    <p><a href="{{ item['url'] }}" target="_blank">開啟來源 ↗</a></p>
+    <p><a class="source-link" href="{{ item['url'] }}" target="_blank" rel="noreferrer">開啟來源 ↗</a></p>
     {% endif %}
     <pre>{{ item['payload_json'] }}</pre>
   </details>
@@ -43,26 +85,16 @@
 <p class="muted">沒有證據。</p>
 {% endif %}
 
-<h2>分析、辯論與委員會</h2>
-{% if parts %}
-  {% for item in parts %}
-  <details>
-    <summary>
-      {{ item['stage'] }} — {{ item['actor'] }}
-      {% if item['round_no'] %}（第 {{ item['round_no'] }} 回合）{% endif %}
-    </summary>
-    <pre>{{ item['content'] }}</pre>
-  </details>
-  {% endfor %}
-{% else %}
-<p class="muted">沒有已保存的工作流程內容。</p>
-{% endif %}
+  </section>
 
-<section class="panel danger-zone">
-  <h2>危險操作</h2>
-  <p>永久刪除這筆研究及其所有資料，無法復原。</p>
-  <button class="danger" type="button"
+  <section class="danger-zone">
+    <p class="eyebrow danger-text">PERMANENT ACTION</p>
+    <h2>刪除此研究</h2>
+    <p>永久移除研究、證據、分析、辯論及報表目錄，無法復原。</p>
+    <button class="button danger" type="button"
     data-delete="{{ run_id }}"
     data-symbol="{{ symbol }}"
-    data-question="{{ question }}">🗑 刪除研究</button>
+    data-question="{{ question }}">刪除研究</button>
+  </section>
+  </div>
 </section>
