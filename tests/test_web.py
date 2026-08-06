@@ -115,6 +115,7 @@ def test_history_list_uses_responsive_register_layout():
     assert ".mobile-list" in style
     assert "@media (max-width: 760px)" in style
     assert "prefers-reduced-motion" in style
+    assert ".rail-report .button { width: 100%; color: var(--paper-bright);" in style
 
 
 def test_history_list_includes_mobile_card_view(tmp_path: Path):

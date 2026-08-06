@@ -128,7 +128,8 @@ th:nth-child(1) { width: 38px; } th:nth-child(2) { width: 86px; } th:nth-child(3
 .case-facts div { margin: 0 0 12px; }
 .case-facts dt { color: var(--muted); font: 700 10px/1.3 ui-monospace, monospace; letter-spacing: 0.08em; }
 .case-facts dd { margin: 3px 0 0; font: 12px/1.4 ui-monospace, monospace; overflow-wrap: anywhere; }
-.rail-report .button { width: 100%; font-size: 12px; }
+.rail-report .button { width: 100%; color: var(--paper-bright); font-size: 12px; }
+.rail-report .button:hover { color: var(--paper-bright); }
 .case-content > section + section { margin-top: 60px; }
 .verdict-section { padding: 25px 28px 28px; border-top: 5px solid var(--gold); background: #f8f5ed; }
 .case-section { scroll-margin-top: 20px; }
