@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
 from ..utils import request_json
 
-_TWSE_VALUATION_URL = "https://www.twse.com.tw/exchangeReport/BWIBBU_d"
+_TWSE_VALUATION_URL = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
 
 
 def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
@@ -22,14 +21,15 @@ def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
 
 
 def _twse_valuation(code: str) -> dict[str, Any] | None:
-    payload = request_json(
-        _TWSE_VALUATION_URL,
-        {
-            "response": "json",
-            "date": date.today().strftime("%Y%m%d"),
-            "selectType": "ALL",
-        },
-    )
+    payload = request_json(_TWSE_VALUATION_URL)
+    if isinstance(payload, list):
+        for row in payload:
+            if isinstance(row, dict) and str(row.get("Code", "")).strip() == code:
+                return row
+        return None
+
+    # Retain parsing support for the legacy website response while callers
+    # transition to the OpenAPI's object-based payload.
     if not isinstance(payload, dict) or payload.get("stat") != "OK":
         return None
     fields = payload.get("fields", [])
@@ -55,9 +55,11 @@ def fetch_official_valuation_data(
                     run_id=run_id,
                     source="TWSE Official Valuation Data",
                     title="Official valuation snapshot",
-                    payload={"dataset": "BWIBBU_d", "record": valuation},
+                    payload={"dataset": "BWIBBU_ALL", "record": valuation},
                     url=_TWSE_VALUATION_URL,
-                    published_at=str(valuation.get("日期") or ""),
+                    published_at=str(
+                        valuation.get("Date") or valuation.get("日期") or ""
+                    ),
                 )
             ]
     except Exception as exc:

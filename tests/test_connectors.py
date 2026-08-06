@@ -601,17 +601,24 @@ def test_fetch_twse_mops_accepts_company_name(mock_request):
 
 @patch("trading_debate.connectors.market.request_json")
 def test_fetch_official_valuation_data_returns_twse_snapshot(mock_request):
-    mock_request.return_value = {
-        "stat": "OK",
-        "fields": ["證券代號", "本益比"],
-        "data": [["2330", "20"]],
-    }
+    mock_request.return_value = [
+        {
+            "Date": "1150805",
+            "Code": "2330",
+            "Name": "台積電",
+            "PEratio": "20",
+            "DividendYield": "1.2",
+            "PBratio": "5.0",
+        }
+    ]
 
     items = fetch_official_valuation_data("run-1", "2330.TW", 10)
 
     assert len(items) == 1
     assert items[0].source == "TWSE Official Valuation Data"
-    assert items[0].payload["record"]["本益比"] == "20"
+    assert items[0].payload["dataset"] == "BWIBBU_ALL"
+    assert items[0].payload["record"]["PEratio"] == "20"
+    assert items[0].published_at == "1150805"
 
 
 @patch("trading_debate.connectors.mops.request_text", return_value="")
