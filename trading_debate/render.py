@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 
 from .context import ContextSummaryError, parse_machine_summary
@@ -15,11 +16,16 @@ def render_evidence(rows: list[sqlite3.Row]) -> str:
     for i, row in enumerate(rows, 1):
         link = f" — {row['url']}" if row["url"] else ""
         reference = evidence_reference(row["id"])
+        payload = json.loads(row["payload_json"])
+        if isinstance(payload, dict):
+            payload = {
+                key: value for key, value in payload.items() if key != "article_text"
+            }
         chunks.append(
             f"{i}. **[{reference}] {row['source']} — {row['title']}**{link}\n"
             f"   - published: {row['published_at'] or 'unknown'}\n"
             f"   - fetched: {row['fetched_at']}\n"
-            f"   - `{row['payload_json']}`"
+            f"   - `{json.dumps(payload, ensure_ascii=False, sort_keys=True)}`"
         )
     return "\n".join(chunks) or "No evidence captured."
 

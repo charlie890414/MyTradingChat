@@ -25,7 +25,14 @@ from .models import EvidenceItem, YahooFetchResult
 from .render import cmd_render
 from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo_symbol
 from .taiwan_names import fetch_taiwan_company_name
-from .utils import as_json, load_dotenv, utc_now
+from .utils import (
+    as_json,
+    fetch_article_text,
+    is_news_source,
+    is_relevant_news,
+    load_dotenv,
+    utc_now,
+)
 from .web import serve
 
 ROOT = Path(__file__).resolve().parent
@@ -34,6 +41,7 @@ DEFAULT_REPORTS = ROOT.parent / "reports"
 DEFAULT_ENV = ROOT.parent / ".env"
 
 _MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
+_MAX_ARTICLE_FETCHES = 12
 
 
 def _connector_status_item(
@@ -60,6 +68,56 @@ def _run_connector(
         return fetcher(run_id, symbol, limit, company_name=company_name), None
     except Exception as exc:  # pragma: no cover - defensive
         return [_connector_status_item(run_id, name, "error", str(exc))], str(exc)
+
+
+def _filter_relevant_news(
+    items: list[EvidenceItem], symbol: str, company_name: str | None
+) -> list[EvidenceItem]:
+    """Keep all non-news evidence and only news directly naming the company."""
+    return [
+        item
+        for item in items
+        if not is_news_source(item.source)
+        or is_relevant_news(
+            symbol=symbol,
+            company_name=company_name,
+            title=item.title,
+            payload=item.payload,
+        )
+    ]
+
+
+def _enrich_news_with_article_text(
+    items: list[EvidenceItem], symbol: str, company_name: str | None
+) -> list[EvidenceItem]:
+    """Attach sanitized article text to a bounded set of news candidates."""
+    candidates = [item for item in items if is_news_source(item.source) and item.url]
+    candidates.sort(
+        key=lambda item: (
+            not is_relevant_news(
+                symbol=symbol,
+                company_name=company_name,
+                title=item.title,
+                payload=item.payload,
+            )
+        )
+    )
+    unique_candidates = list({item.dedup_key: item for item in candidates}.values())[
+        :_MAX_ARTICLE_FETCHES
+    ]
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(fetch_article_text, item.url): item
+            for item in unique_candidates
+        }
+        for future, item in futures.items():
+            try:
+                article_text = future.result()
+            except Exception:  # pragma: no cover - defensive
+                continue
+            if article_text and isinstance(item.payload, dict):
+                item.payload = {**item.payload, "article_text": article_text}
+    return items
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -150,7 +208,11 @@ def cmd_fetch(args: argparse.Namespace) -> None:
                 except Exception as exc:  # pragma: no cover - defensive
                     connector_errors[name] = str(exc)
 
-        insert_evidence_items(con, yahoo_items + connector_results)
+        evidence_items = _enrich_news_with_article_text(
+            yahoo_items + connector_results, symbol, company_name
+        )
+        evidence_items = _filter_relevant_news(evidence_items, symbol, company_name)
+        insert_evidence_items(con, evidence_items)
         if yahoo_error:
             con.execute(
                 "UPDATE runs SET status = 'incomplete' WHERE id = ?",

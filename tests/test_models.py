@@ -14,7 +14,9 @@ def test_evidence_item_generates_dedup_key_from_url_and_title():
         url="https://example.com",
         published_at="2026-01-01",
     )
-    assert item.dedup_key == "https://example.com|2026-01-01|Headline"
+    assert (
+        item.dedup_key == "source:Yahoo Finance|https://example.com|2026-01-01|Headline"
+    )
 
 
 def test_evidence_item_uses_title_when_url_and_date_are_missing():
@@ -24,7 +26,7 @@ def test_evidence_item_uses_title_when_url_and_date_are_missing():
         title="Fundamentals snapshot",
         payload={"x": 1},
     )
-    assert item.dedup_key == "||Fundamentals snapshot"
+    assert item.dedup_key == "source:Yahoo Finance|||Fundamentals snapshot"
 
 
 def test_evidence_item_respects_explicit_dedup_key():

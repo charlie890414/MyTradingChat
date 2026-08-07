@@ -218,6 +218,7 @@ class ResearchApp(BaseHTTPRequestHandler):
         actor_labels = {
             "fundamentals": "基本面分析",
             "technical": "技術面分析",
+            "news_content": "新聞內文摘要",
             "news": "新聞與事件分析",
             "sentiment": "情緒分析",
             "bull": "多方觀點",

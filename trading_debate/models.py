@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .utils import canonical_evidence_key
+
 
 @dataclass
 class EvidenceItem:
@@ -20,7 +22,9 @@ class EvidenceItem:
 
     def __post_init__(self) -> None:
         if not self.dedup_key:
-            self.dedup_key = f"{self.url or ''}|{self.published_at or ''}|{self.title}"
+            self.dedup_key = canonical_evidence_key(
+                self.source, self.title, self.url, self.published_at
+            )
 
 
 @dataclass

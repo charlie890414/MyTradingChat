@@ -9,6 +9,65 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import trading_debate as td
+from trading_debate.utils import fetch_article_text, is_relevant_news
+
+
+def test_is_relevant_news_requires_direct_company_reference():
+    assert is_relevant_news(
+        symbol="AVGO",
+        company_name="Broadcom Inc.",
+        title="Broadcom expands custom chip capacity",
+        payload={"summary": "AVGO demand remains strong."},
+    )
+
+
+def test_fetch_article_text_cleans_html_and_rejects_private_hosts():
+    class Response:
+        class Headers(dict):
+            def get_content_charset(self):
+                return "utf-8"
+
+        headers = Headers({"Content-Type": "text/html; charset=utf-8"})
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return b"<html><head><title>Ignore</title></head><body><article>Broadcom wins <b>custom-chip</b> order.</article><script>alert('ignore')</script></body></html>"
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    def public_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("93.184.216.34", 0))]
+
+    def private_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("127.0.0.1", 0))]
+
+    text = fetch_article_text(
+        "https://example.com/article",
+        resolver=public_resolver,
+        opener=Opener(),
+    )
+    assert text == "Broadcom wins custom-chip order."
+    assert (
+        fetch_article_text(
+            "http://localhost/article",
+            resolver=private_resolver,
+            opener=Opener(),
+        )
+        is None
+    )
+    assert not is_relevant_news(
+        symbol="AVGO",
+        company_name="Broadcom Inc.",
+        title="Qualcomm handset revenue contracts",
+        payload={"summary": "AMD and Nvidia also reported results."},
+    )
 
 
 def test_utc_now_format():

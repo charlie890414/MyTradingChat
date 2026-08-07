@@ -104,6 +104,44 @@ def test_insert_evidence_items_upserts_on_duplicate(tmp_path: Path):
     con.close()
 
 
+def test_insert_evidence_items_deduplicates_syndicated_news(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    td.insert_evidence_items(
+        con,
+        [
+            EvidenceItem(
+                run_id="run-1",
+                source="Yahoo Finance News",
+                title="Apple launches a new product",
+                payload={"summary": "Yahoo copy"},
+                url="https://finance.example.com/apple?utm_source=yahoo",
+                published_at="2026-08-08T10:00:00+00:00",
+            ),
+            EvidenceItem(
+                run_id="run-1",
+                source="Finnhub Company News",
+                title="Apple launches a new product",
+                payload={"summary": "Syndicated copy"},
+                url="https://finnhub.example.com/article/123",
+                published_at="2026-08-08T15:00:00+00:00",
+            ),
+        ],
+    )
+    con.commit()
+    con.row_factory = sqlite3.Row
+    rows = con.execute("SELECT source, payload_json FROM evidence").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["source"] == "Yahoo Finance News"
+    assert json.loads(rows[0]["payload_json"]) == {"summary": "Yahoo copy"}
+    con.close()
+
+
 def test_connector_status(tmp_path: Path):
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
@@ -181,7 +219,7 @@ def test_contribution_migration_normalizes_and_deduplicates(tmp_path: Path):
         ("analysis", "news", "news report"),
         ("verdict", "committee", "same verdict"),
     ]
-    assert version == 1
+    assert version == 2
 
 
 def test_contribution_migration_rejects_conflicting_duplicates(tmp_path: Path):

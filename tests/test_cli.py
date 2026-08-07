@@ -12,7 +12,12 @@ import pandas as pd
 import pytest
 
 import trading_debate as td
-from trading_debate.cli import _MAX_WORKERS
+from trading_debate.cli import (
+    _MAX_WORKERS,
+    _enrich_news_with_article_text,
+    _filter_relevant_news,
+)
+from trading_debate.models import EvidenceItem
 
 from .conftest import make_history, make_mock_ticker, make_yahoo_result
 
@@ -175,6 +180,89 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys, empty_connectors):
     assert parsed["run_id"] == "run-1"
     assert parsed["price"]["close"] == 150.0
     assert parsed["technicals"]["available"] is True
+
+
+def test_cmd_fetch_filters_irrelevant_news(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    con = td.connect(db_path)
+    con.execute(
+        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("run-1", "AAPL", "Test", 3, td.utc_now(), "active"),
+    )
+    con.commit()
+    con.close()
+
+    idx = pd.DatetimeIndex([datetime(2025, 7, 28, tzinfo=UTC)])
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {
+        "shortName": "Apple Inc.",
+        "currentPrice": 150.0,
+    }
+    mock_ticker.history.return_value = pd.DataFrame(
+        {
+            "Open": [150.0],
+            "High": [151.0],
+            "Low": [149.0],
+            "Close": [150.0],
+            "Volume": [1000.0],
+        },
+        index=idx,
+    )
+    mock_ticker.get_news.return_value = []
+
+    def news_connector(*args, **kwargs):
+        return [
+            EvidenceItem(
+                run_id="run-1",
+                source="Google News RSS",
+                title="Apple launches a new service",
+                payload={"summary": "Apple expands subscriptions."},
+                published_at="2026-08-08T10:00:00+00:00",
+            ),
+            EvidenceItem(
+                run_id="run-1",
+                source="Google News RSS",
+                title="Microsoft reports cloud growth",
+                payload={"summary": "Azure revenue grew."},
+                published_at="2026-08-08T10:00:00+00:00",
+            ),
+        ]
+
+    args = MagicMock(db=db_path, run_id="run-1", news_limit=10)
+    with (
+        patch("trading_debate.cli.CONNECTORS", {"News": news_connector}),
+        patch(
+            "trading_debate.connectors.yahoo.yfinance.Ticker", return_value=mock_ticker
+        ),
+    ):
+        td.cmd_fetch(args)
+    capsys.readouterr()
+
+    with td.connect(db_path) as con:
+        titles = [row[0] for row in con.execute("SELECT title FROM evidence")]
+    assert "Apple launches a new service" in titles
+    assert "Microsoft reports cloud growth" not in titles
+
+
+def test_article_text_can_establish_news_relevance():
+    item = EvidenceItem(
+        run_id="run-1",
+        source="Google News RSS",
+        title="Custom chip market update",
+        payload={"summary": "Industry demand is growing."},
+        url="https://example.com/article",
+        published_at="2026-08-08T10:00:00+00:00",
+    )
+    with patch(
+        "trading_debate.cli.fetch_article_text",
+        return_value="Broadcom expects custom-chip demand to grow.",
+    ):
+        enriched = _enrich_news_with_article_text([item], "AVGO", "Broadcom Inc.")
+
+    relevant = _filter_relevant_news(enriched, "AVGO", "Broadcom Inc.")
+    assert relevant == [item]
+    assert item.payload["article_text"].startswith("Broadcom")
 
 
 def test_cmd_fetch_updates_symbol_on_resolution(
@@ -720,7 +808,7 @@ def test_cmd_render(tmp_path: Path, capsys):
             "Fundamentals",
             None,
             None,
-            '{"price": 150}',
+            '{"price": 150, "article_text": "Full article body"}',
             td.utc_now(),
         ),
     )
@@ -755,6 +843,7 @@ def test_cmd_render(tmp_path: Path, capsys):
     assert "AAPL" in content
     assert "Fundamentals Analyst" in content
     assert "Analysis content" in content
+    assert "Full article body" not in content
 
     report_path.write_text("old report\n", encoding="utf-8")
     td.cmd_render(args)

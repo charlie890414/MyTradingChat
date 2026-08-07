@@ -228,6 +228,33 @@ def test_news_context_deduplicates_canonical_url_and_title(tmp_path: Path):
     assert len(context["evidence"]) == 2
 
 
+def test_news_content_context_isolated_from_following_news_analyst(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    evidence_id = _insert_evidence(
+        db_path,
+        "Google News RSS",
+        "Apple launches a service",
+        {"summary": "Brief", "article_text": "Full article body"},
+    )
+    _insert_contribution(
+        db_path,
+        "analysis",
+        "news_content",
+        _summary(actor="news_content", evidence_ids=[evidence_id]),
+    )
+
+    run, evidence, contributions = _run_rows(db_path)
+    content_context = assemble_context(run, evidence, contributions, "news_content")
+    news_context = assemble_context(run, evidence, contributions, "news")
+
+    assert (
+        content_context["evidence"][0]["payload"]["article_text"] == "Full article body"
+    )
+    assert "article_text" not in news_context["evidence"][0]["payload"]
+    assert news_context["news_content_summary"]["actor"] == "news_content"
+
+
 def test_fundamental_context_semantically_compacts_finnhub_financials(
     tmp_path: Path,
 ):

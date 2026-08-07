@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from .models import EvidenceItem
-from .utils import as_json, utc_now
+from .utils import as_json, is_news_source, utc_now
 
 RUN_STATUSES = frozenset({"active", "incomplete", "completed", "failed"})
 RATINGS = frozenset({"buy", "hold", "reduce"})
 CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 _ACTOR_ALIASES = {
     "analysis": {
@@ -20,6 +20,9 @@ _ACTOR_ALIASES = {
         "fundamentals analyst": "fundamentals",
         "technical": "technical",
         "technical analyst": "technical",
+        "news_content": "news_content",
+        "news content analyst": "news_content",
+        "news content summarizer": "news_content",
         "news": "news",
         "news analyst": "news",
         "news & events analyst": "news",
@@ -101,6 +104,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
         """
     )
     _migrate_contributions(con)
+    _migrate_evidence_dedup(con)
     return con
 
 
@@ -161,6 +165,22 @@ def _migrate_contributions(con: sqlite3.Connection) -> None:
         con.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
 
+def _migrate_evidence_dedup(con: sqlite3.Connection) -> None:
+    """Move legacy evidence to source-scoped keys before cross-source dedup."""
+    index_columns = con.execute("PRAGMA index_info(ux_evidence_dedup)").fetchall()
+    if [row[2] for row in index_columns] == ["run_id", "dedup_key"]:
+        return
+    with con:
+        con.execute(
+            "UPDATE evidence SET dedup_key = source || ':' || dedup_key "
+            "WHERE dedup_key NOT LIKE 'source:%'"
+        )
+        con.execute("DROP INDEX IF EXISTS ux_evidence_dedup")
+        con.execute(
+            "CREATE UNIQUE INDEX ux_evidence_dedup ON evidence(run_id, dedup_key)"
+        )
+
+
 def evidence_reference(evidence_id: int) -> str:
     """Return the stable, user-facing reference for a persisted evidence row."""
     return f"EVID-{evidence_id:04d}"
@@ -200,7 +220,7 @@ def insert_evidence_item(con: sqlite3.Connection, item: EvidenceItem) -> None:
             run_id, source, title, url, published_at,
             payload_json, fetched_at, dedup_key
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(run_id, source, dedup_key) DO UPDATE SET
+        ON CONFLICT(run_id, dedup_key) DO UPDATE SET
             title=excluded.title,
             url=excluded.url,
             published_at=excluded.published_at,
@@ -224,9 +244,14 @@ def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) ->
     """Bulk upsert evidence items for a run.
 
     The dedup_key on each item is used to resolve conflicts so repeated
-    fetches of the same source/title/url update existing rows instead of
-    creating duplicates.
+    fetches and syndicated news from multiple sources do not create duplicates.
     """
+    unique_items: dict[str, EvidenceItem] = {}
+    for item in items:
+        if is_news_source(item.source):
+            unique_items.setdefault(item.dedup_key, item)
+        else:
+            unique_items[item.dedup_key] = item
     rows = [
         (
             item.run_id,
@@ -238,7 +263,7 @@ def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) ->
             utc_now(),
             item.dedup_key,
         )
-        for item in items
+        for item in unique_items.values()
     ]
     con.executemany(
         """
@@ -246,7 +271,7 @@ def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) ->
             run_id, source, title, url, published_at,
             payload_json, fetched_at, dedup_key
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(run_id, source, dedup_key) DO UPDATE SET
+        ON CONFLICT(run_id, dedup_key) DO UPDATE SET
             title=excluded.title,
             url=excluded.url,
             published_at=excluded.published_at,

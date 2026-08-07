@@ -15,6 +15,7 @@ from .db import evidence_reference, normalize_contribution_actor
 CONTEXT_ROLES = (
     "fundamentals",
     "technical",
+    "news_content",
     "news",
     "sentiment",
     "debate",
@@ -126,9 +127,16 @@ def assemble_context(
         ],
     }
     investable = [row for row in evidence if not _is_status(row)]
-    if role in {"fundamentals", "technical", "news", "sentiment"}:
+    if role in {"fundamentals", "technical", "news_content", "news", "sentiment"}:
         selected = _select_analyst_evidence(investable, role)
-        base["evidence"] = [_serialize_evidence(row) for row in selected]
+        base["evidence"] = [
+            _serialize_evidence(row, include_article_text=role == "news_content")
+            for row in selected
+        ]
+        if role == "news":
+            summary = _latest_news_content_summary(contributions)
+            if summary:
+                base["news_content_summary"] = summary
         return base
 
     summaries = _required_summaries(run, contributions, role)
@@ -177,12 +185,15 @@ def _payload(row: sqlite3.Row) -> Any:
     return json.loads(row["payload_json"])
 
 
-def _serialize_evidence(row: sqlite3.Row) -> dict[str, Any]:
+def _serialize_evidence(
+    row: sqlite3.Row, *, include_article_text: bool = False
+) -> dict[str, Any]:
     payload = _compact_payload(
         str(row["title"]),
         str(row["source"]),
         _payload(row),
         published_at=row["published_at"],
+        include_article_text=include_article_text,
     )
     return {
         "id": row["id"],
@@ -202,7 +213,16 @@ def _compact_payload(
     payload: Any,
     *,
     published_at: str | None,
+    include_article_text: bool = False,
 ) -> Any:
+    if (
+        isinstance(payload, dict)
+        and "article_text" in payload
+        and not include_article_text
+    ):
+        payload = {
+            key: value for key, value in payload.items() if key != "article_text"
+        }
     if title in _OHLCV_LIMITS:
         return _compact_ohlcv(title, payload, published_at)
     if source == "Finnhub Financials As Reported":
@@ -315,7 +335,9 @@ def _select_analyst_evidence(
     evidence: list[sqlite3.Row], role: str
 ) -> list[sqlite3.Row]:
     selected = [row for row in evidence if _matches_role(row, role)]
-    if role in {"news", "sentiment"}:
+    if role == "news_content":
+        selected = [row for row in evidence if _is_news_evidence(row)]
+    if role in {"news", "sentiment", "news_content"}:
         selected = _deduplicate_news(selected)
     if role in {"fundamentals", "sentiment"}:
         selected = _prefer_derived_snapshots(selected)
@@ -339,6 +361,8 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
     title = str(row["title"]).lower()
     text = f"{source} {title}"
     price_snapshot = title == "one-year price snapshot"
+    if role == "news_content":
+        return _is_news_evidence(row)
     if role == "technical":
         return price_snapshot or "technical" in text or "ohlcv" in text
     if role == "news":
@@ -386,6 +410,22 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
         )
         or price_snapshot
     )
+
+
+def _is_news_evidence(row: sqlite3.Row) -> bool:
+    return "news" in str(row["source"]).lower()
+
+
+def _latest_news_content_summary(
+    contributions: list[sqlite3.Row],
+) -> dict[str, Any] | None:
+    for row in reversed(contributions):
+        if row["stage"] == "analysis" and row["actor"] == "news_content":
+            try:
+                return parse_machine_summary(row["content"])
+            except ContextSummaryError:
+                return None
+    return None
 
 
 def _deduplicate_news(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
