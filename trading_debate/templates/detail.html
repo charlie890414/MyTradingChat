@@ -1,5 +1,5 @@
 <p class="back-link"><a href="/">← 返回研究清冊</a></p>
-<section class="case-header">
+<section class="case-header animate-in">
   <div>
     <p class="eyebrow">RESEARCH CASE FILE</p>
     <h1>{{ symbol }}</h1>
@@ -40,7 +40,7 @@
   </aside>
 
   <div class="case-content">
-  <section id="verdict" class="verdict-section">
+  <section id="verdict" class="verdict-section reveal">
     <p class="eyebrow">INVESTMENT COMMITTEE</p>
     <h2>委員會結論</h2>
     {% for item in verdicts %}
@@ -53,11 +53,11 @@
     {% endfor %}
   </section>
 
-  <section id="analysis" class="case-section">
+  <section id="analysis" class="case-section reveal">
     <p class="eyebrow">INDEPENDENT READS</p>
     <h2>專家分析</h2>
     {% for item in analyses %}
-    <details class="record analysis-record">
+    <details class="record analysis-record analysis-{{ item['actor'] }}">
       <summary>{% if item['actor'] == 'news_content' %}新聞內文總結{% else %}{{ item['actor'] }} 分析{% endif %} <span>展開內容</span></summary>
       <pre>{{ item['content'] }}</pre>
     </details>
@@ -66,7 +66,7 @@
     {% endfor %}
   </section>
 
-  <section id="debate" class="case-section">
+  <section id="debate" class="case-section reveal">
     <p class="eyebrow">THESIS UNDER PRESSURE</p>
     <h2>多空辯論</h2>
     {% for item in debates %}
@@ -79,7 +79,7 @@
     {% endfor %}
   </section>
 
-  <section id="evidence" class="case-section evidence-section">
+  <section id="evidence" class="case-section evidence-section reveal">
     <p class="eyebrow">SOURCE RECORD</p>
     <h2>證據包</h2>
 {% if evidence %}
@@ -110,7 +110,7 @@
 
   </section>
 
-  <section class="danger-zone">
+  <section class="danger-zone reveal">
     <p class="eyebrow danger-text">PERMANENT ACTION</p>
     <h2>刪除此研究</h2>
     <p>永久移除研究、證據、分析、辯論及報表目錄，無法復原。</p>

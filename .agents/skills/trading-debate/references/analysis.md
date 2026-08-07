@@ -67,6 +67,30 @@ machine-readable structure:
 Keep each article summary concise. Omit immaterial articles rather than reproducing
 their body text.
 
+The `## Machine-readable summary` JSON block must be the absolute last element of
+the file. Do not append any note, footer, horizontal rule, or prose after the
+closing code fence — the web UI only hides the machine-readable block when it is
+the final content of the report.
+
+### Deduplicate before summarizing
+
+Before writing any summary, group all article entries into unique underlying
+events and deduplicate:
+
+- Group together multiple articles (headlines or bodies) that report the same
+  underlying event (e.g. one company's monthly revenue release covered by several
+  outlets), including across different sources (RSS, FinMind news, Yahoo, etc.).
+- Assign each unique event an explicit identity (e.g. 事件 A / 事件 B / 事件 C).
+- For each event, keep the fullest, most authoritative body available and cite
+  every evidence ID that belongs to that event.
+- In `article_summaries`, mark grouped duplicates with a note such as
+  "與 <other evidence ID> 同屬 <event identity>，屬重複轉述，去重後不重複計" and set
+  their `materiality` lower than the primary source of the same event.
+- Do not double count more than one article for the same underlying event when
+  deriving the number of supported events or sentiment signals.
+- Do not silently discard an item holding unique facts (e.g. a capital-expenditure
+  figure absent elsewhere); surface it under the matching event.
+
 ## Subagent run ownership
 
 When applying these rules as a subagent, do not assume ownership of the research run.
@@ -141,6 +165,10 @@ Each analyst must use the following Markdown structure:
 The JSON summary must be consistent with the Markdown report.
 It is the downstream handoff to Bull, Bear, and Committee agents. Include every evidence ID needed to verify the summarized claims; it does not replace the full report or source evidence.
 
+The `## Machine-readable summary` JSON block must be the last element of the
+file; place no text, footer, or horizontal rule after its closing code fence.
+The web UI relies on the block being at the end to hide it from readers.
+
 ## Fundamentals Analyst
 
 The Fundamentals Analyst must assess, when evidence is available:
@@ -207,8 +235,10 @@ Do not infer institutional accumulation, distribution, manipulation, or insider 
 The News & Events Analyst must:
 
 - Use available read-only web, browser, or connector tools to retrieve the body
-  text of linked news evidence when article-level detail would materially affect
-  the analysis.
+  text of linked news evidence for every item that lacks a complete body, not only
+  where article-level detail would materially affect the analysis. Rely on the
+  News Content Summarizer's deduplication (事件 A/B/C) to avoid double-counting
+  multiple headlines about the same underlying event.
 - Cite the existing evidence ID for facts found in the matching article body and
   note the canonical publisher URL when it differs from the evidence item URL.
 - State whether each material news item was assessed from a full article body,

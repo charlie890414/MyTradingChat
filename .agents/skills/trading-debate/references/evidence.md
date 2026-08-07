@@ -32,11 +32,14 @@ Analyst views contain evidence relevant to that role. Debate and Committee views
 ### News article body retrieval
 
 When an evidence item contains a news URL, use available read-only web, browser,
-or connector tools to retrieve the article body when the body would materially
-improve the analysis. Opening the URL, following a publisher link from an
-aggregator, or searching the exact headline to resolve the canonical publisher
-page counts as enrichment of the existing evidence item, not unrelated new
-evidence.
+or connector tools to retrieve the article body **for every item that does not
+already carry a complete article body**, regardless of whether it appears
+materially relevant up front. Fetching the URL, following a publisher link from
+an aggregator, or searching the exact headline to resolve the canonical
+publisher page counts as enrichment of the existing evidence item, not
+unrelated new evidence. Do not skip a URL just because the headline suggests the
+item is redundant with another article; a later deduplication step (see
+analysis.md, News Content Summarizer) reconciles duplicates explicitly.
 
 - Keep the existing evidence ID and cite it for claims drawn from the retrieved
   article body.

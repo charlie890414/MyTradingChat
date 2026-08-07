@@ -1,4 +1,4 @@
-<section class="archive-hero">
+<section class="archive-hero animate-in">
   <p class="eyebrow">RESEARCH LEDGER</p>
   <h1>研究不是結論，<br>是可回查的證據鏈。</h1>
   <p class="lede">檢視已保存的台美股研究，沿著證據、觀點交鋒與委員會結論回到每個判斷的來源。</p>
@@ -8,14 +8,14 @@
 <div class="notice success">{{ message }}</div>
 {% endif %}
 
-<div class="ledger-summary" aria-label="研究檔案統計">
+<div class="ledger-summary animate-in" aria-label="研究檔案統計">
   <div class="summary-total"><b>{{ total }}</b><span>已保存研究</span></div>
   {% for key, count in status_counts %}
   <div class="summary-item"><b>{{ count }}</b><span>{{ badge(key, 'status') | safe }}</span></div>
   {% endfor %}
 </div>
 
-<section class="filter-panel" aria-labelledby="filter-title">
+<section class="filter-panel animate-in" aria-labelledby="filter-title">
   <div>
     <p class="eyebrow">FIND A RESEARCH RUN</p>
     <h2 id="filter-title">搜尋檔案</h2>
@@ -43,7 +43,7 @@
   </form>
 </section>
 
-<form class="research-register" method="post" action="/runs/delete">
+<form class="research-register animate-in" method="post" action="/runs/delete">
   <div class="register-heading">
     <div>
       <p class="eyebrow">ARCHIVE REGISTER</p>
