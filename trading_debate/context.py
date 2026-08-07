@@ -428,6 +428,44 @@ def _latest_news_content_summary(
     return None
 
 
+def news_content_summaries(
+    contributions: list[sqlite3.Row],
+) -> dict[str, dict[str, Any]]:
+    """Return news-content summaries keyed by their original evidence ID."""
+    summaries, _ = news_content_summary_status(contributions)
+    return summaries
+
+
+def news_content_summary_status(
+    contributions: list[sqlite3.Row],
+) -> tuple[dict[str, dict[str, Any]], str | None]:
+    """Return article summaries and a user-facing reason when unavailable."""
+    contribution = next(
+        (
+            row
+            for row in reversed(contributions)
+            if row["stage"] == "analysis" and row["actor"] == "news_content"
+        ),
+        None,
+    )
+    if not contribution:
+        return {}, "尚未產生新聞內文總結"
+    try:
+        summary = parse_machine_summary(contribution["content"])
+    except ContextSummaryError:
+        return {}, "新聞內文總結的 machine-readable summary 格式無效"
+    if not isinstance(summary.get("article_summaries"), list):
+        return {}, "新聞內文總結未提供文章摘要"
+    summaries = {
+        item["evidence_id"]: item
+        for item in summary["article_summaries"]
+        if isinstance(item, dict) and isinstance(item.get("evidence_id"), str)
+    }
+    if not summaries:
+        return {}, "新聞內文總結未提供可對應的文章摘要"
+    return summaries, None
+
+
 def _deduplicate_news(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
     seen: set[str] = set()
     result = []

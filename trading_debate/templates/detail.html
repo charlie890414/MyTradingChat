@@ -58,7 +58,7 @@
     <h2>專家分析</h2>
     {% for item in analyses %}
     <details class="record analysis-record">
-      <summary>{{ item['actor'] }} 分析 <span>展開內容</span></summary>
+      <summary>{% if item['actor'] == 'news_content' %}新聞內文總結{% else %}{{ item['actor'] }} 分析{% endif %} <span>展開內容</span></summary>
       <pre>{{ item['content'] }}</pre>
     </details>
     {% else %}
@@ -90,7 +90,18 @@
     {% if item['url'] %}
     <p><a class="source-link" href="{{ item['url'] }}" target="_blank" rel="noreferrer">開啟來源 ↗</a></p>
     {% endif %}
+    {% if item['is_news'] %}
+      {% if item['news_summary'] %}
+      <section class="news-summary">
+        <p>{{ item['news_summary']['summary'] or '未提供新聞摘要。' }}</p>
+        <p class="news-summary-meta">正文 {% if item['news_summary']['body_available'] %}可得{% else %}不可得{% endif %}{% if item['news_summary']['event_date'] %}　事件日期 {{ item['news_summary']['event_date'] }}{% endif %}{% if item['news_summary']['materiality'] %}　重要性 {{ item['news_summary']['materiality'] }}{% endif %}{% if item['news_summary']['source_quality'] %}　來源品質 {{ item['news_summary']['source_quality'] }}{% endif %}</p>
+      </section>
+      {% else %}
+      <p class="news-summary-status">{{ item['news_summary_status'] }}</p>
+      {% endif %}
+    {% else %}
     <pre>{{ item['payload_json'] }}</pre>
+    {% endif %}
   </details>
   {% endfor %}
 {% else %}

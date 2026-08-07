@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import html
 import mimetypes
+import re
 import shutil
+import sqlite3
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,10 +17,16 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+from .context import news_content_summary_status
 from .db import connect, delete_run, evidence_reference
+from .utils import is_news_source
 
 _STATUSES = ("active", "incomplete", "completed", "failed")
 _VERDICTS = ("buy", "hold", "reduce", "abstain")
+_MACHINE_SUMMARY_RE = re.compile(
+    r"\n## Machine-readable summary\s*```json\s*\{.*?\}\s*```\s*$",
+    flags=re.DOTALL | re.IGNORECASE,
+)
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -80,6 +88,52 @@ def _options(values: tuple[str, ...], selected: str) -> str:
         f"<option value='{value}'{' selected' if value == selected else ''}>{labels.get(value, value)}</option>"
         for value in values
     )
+
+
+def _detail_evidence(
+    evidence: list[object], contributions: list[object]
+) -> list[dict[str, object]]:
+    """Build web-safe evidence rows without exposing raw news payloads."""
+    summaries, summary_status = news_content_summary_status(contributions)  # type: ignore[arg-type]
+    rows: list[dict[str, object]] = []
+    for item in evidence:
+        row = dict(item)  # type: ignore[arg-type]
+        if is_news_source(str(row["source"])):
+            summary = summaries.get(evidence_reference(int(row["id"])))
+            row["is_news"] = True
+            row["news_summary"] = _web_news_summary(summary) if summary else None
+            row["news_summary_status"] = (
+                None if summary else summary_status or "此新聞未被納入新聞內文總結"
+            )
+        else:
+            row["is_news"] = False
+        rows.append(row)
+    return rows
+
+
+def _web_news_summary(summary: dict[str, object]) -> dict[str, object]:
+    fields = (
+        "body_available",
+        "event_date",
+        "summary",
+        "materiality",
+        "source_quality",
+    )
+    compact = {key: summary[key] for key in fields if key in summary}
+    if isinstance(compact.get("summary"), str):
+        compact["summary"] = compact["summary"][:1000]
+    return compact
+
+
+def _display_contributions(
+    contributions: list[sqlite3.Row], stage: str
+) -> list[dict[str, object]]:
+    """Return contribution content suitable for the human-facing web UI."""
+    return [
+        dict(item) | {"content": _MACHINE_SUMMARY_RE.sub("", item["content"]).strip()}
+        for item in contributions
+        if item["stage"] == stage
+    ]
 
 
 class ResearchApp(BaseHTTPRequestHandler):
@@ -218,7 +272,7 @@ class ResearchApp(BaseHTTPRequestHandler):
         actor_labels = {
             "fundamentals": "基本面分析",
             "technical": "技術面分析",
-            "news_content": "新聞內文摘要",
+            "news_content": "新聞內文總結",
             "news": "新聞與事件分析",
             "sentiment": "情緒分析",
             "bull": "多方觀點",
@@ -268,10 +322,10 @@ class ResearchApp(BaseHTTPRequestHandler):
                     confidence=run["confidence"],
                     debate_rounds=run["debate_rounds"],
                     report=report,
-                    evidence=evidence,
-                    analyses=[item for item in parts if item["stage"] == "analysis"],
-                    debates=[item for item in parts if item["stage"] == "debate"],
-                    verdicts=[item for item in parts if item["stage"] == "verdict"],
+                    evidence=_detail_evidence(evidence, parts),
+                    analyses=_display_contributions(parts, "analysis"),
+                    debates=_display_contributions(parts, "debate"),
+                    verdicts=_display_contributions(parts, "verdict"),
                     latest_evidence=latest_evidence,
                     timeline=timeline,
                 ),

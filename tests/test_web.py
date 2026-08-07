@@ -5,7 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import trading_debate as td
-from trading_debate.web import ResearchApp, _env, _layout, _resolve_report_path
+from trading_debate.web import (
+    ResearchApp,
+    _detail_evidence,
+    _display_contributions,
+    _env,
+    _layout,
+    _resolve_report_path,
+)
 
 
 def _insert_run(db_path: Path, report_path: Path | None = None) -> None:
@@ -33,6 +40,26 @@ def _insert_run(db_path: Path, report_path: Path | None = None) -> None:
 
 def test_evidence_reference_is_stable():
     assert td.evidence_reference(12) == "EVID-0012"
+
+
+def test_web_hides_machine_readable_summary_from_contributions(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    content = (
+        "# Human-readable analysis\n\n正文內容\n\n"
+        '## Machine-readable summary\n```json\n{"actor":"fundamentals"}\n```'
+    )
+    with td.connect(db_path) as con:
+        con.execute(
+            "UPDATE contributions SET content = ? WHERE run_id = ?", (content, "run-1")
+        )
+        parts = con.execute("SELECT * FROM contributions").fetchall()
+        stored = con.execute("SELECT content FROM contributions").fetchone()[0]
+
+    display = _display_contributions(parts, "analysis")
+    assert display[0]["content"] == "# Human-readable analysis\n\n正文內容"
+    assert "Machine-readable summary" not in display[0]["content"]
+    assert stored == content
 
 
 def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path):
@@ -180,6 +207,100 @@ def test_detail_groups_research_into_evidence_chain(tmp_path: Path):
     assert "EVID-0001" in page
     assert 'class="local-time"' in page
     assert "RESEARCH TIMELINE" in page
+
+
+def test_detail_uses_news_content_summary_instead_of_raw_payload(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    with td.connect(db_path) as con:
+        td.insert_evidence(
+            con,
+            "run-1",
+            "Google News RSS",
+            "Nvidia event",
+            {"summary": "Raw RSS payload", "article_text": "Raw article body"},
+            url="https://example.com/news",
+            published_at="2026-08-08",
+        )
+        con.execute(
+            "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                "analysis",
+                "news_content",
+                None,
+                "## Machine-readable summary\n```json\n"
+                '{"actor":"news_content","stance":"neutral","confidence":"medium",'
+                '"evidence_ids":["EVID-0002"],"evidence_gaps":[],"article_summaries":'
+                '[{"evidence_id":"EVID-0002","summary":"Readable event summary",'
+                '"body_available":true,"materiality":"high"}]}'
+                "\n```",
+                td.utc_now(),
+            ),
+        )
+        evidence = con.execute(
+            "SELECT * FROM evidence WHERE run_id = ? ORDER BY id", ("run-1",)
+        ).fetchall()
+        parts = con.execute(
+            "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", ("run-1",)
+        ).fetchall()
+
+    rows = _detail_evidence(evidence, parts)
+    news = rows[1]
+    assert news["news_summary"]["summary"] == "Readable event summary"
+    assert "payload_json" in news
+    page = _env.get_template("detail.html").render(
+        run_id="run-1",
+        symbol="NVDA",
+        question="Test",
+        created_at=td.utc_now(),
+        status="completed",
+        verdict=None,
+        confidence=None,
+        debate_rounds=1,
+        report="",
+        evidence=rows,
+        analyses=[],
+        debates=[],
+        verdicts=[],
+        latest_evidence=td.utc_now(),
+        timeline=[],
+    )
+    assert "Readable event summary" in page
+    assert "Raw RSS payload" not in page
+    assert "Raw article body" not in page
+
+
+def test_detail_explains_missing_or_invalid_news_content_summary(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    with td.connect(db_path) as con:
+        td.insert_evidence(
+            con,
+            "run-1",
+            "Google News RSS",
+            "Nvidia event",
+            {"summary": "Raw RSS payload"},
+        )
+        evidence = con.execute("SELECT * FROM evidence ORDER BY id").fetchall()
+        parts = con.execute("SELECT * FROM contributions ORDER BY id").fetchall()
+
+    missing = _detail_evidence(evidence, parts)[1]
+    assert missing["news_summary_status"] == "尚未產生新聞內文總結"
+
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("run-1", "analysis", "news_content", None, "invalid", td.utc_now()),
+        )
+        parts = con.execute("SELECT * FROM contributions ORDER BY id").fetchall()
+
+    invalid = _detail_evidence(evidence, parts)[1]
+    assert invalid["news_summary_status"] == (
+        "新聞內文總結的 machine-readable summary 格式無效"
+    )
 
 
 def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):
