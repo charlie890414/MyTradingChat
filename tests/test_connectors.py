@@ -36,6 +36,50 @@ def test_fetch_yahoo_returns_result_with_items():
         },
         {"content": {"title": "Old news", "pubDate": "2020-01-01"}},
     ]
+    mock_ticker.get_earnings_estimate.return_value = pd.DataFrame(
+        {"avg": [2.0], "growth": [0.05]}, index=["0q"]
+    )
+    mock_ticker.get_revenue_estimate.return_value = pd.DataFrame(
+        {"avg": [500.0]}, index=["0q"]
+    )
+    mock_ticker.get_growth_estimates.return_value = pd.DataFrame(
+        {"stock": [0.1]}, index=["0y"]
+    )
+    mock_ticker.get_eps_trend.return_value = pd.DataFrame(
+        {"current": [2.0], "7daysAgo": [1.9]}, index=["0q"]
+    )
+    mock_ticker.get_eps_revisions.return_value = pd.DataFrame(
+        {"upLast7days": [1]}, index=["0q"]
+    )
+    mock_ticker.get_analyst_price_targets.return_value = {
+        "current": 150.0,
+        "mean": 160.0,
+    }
+    mock_ticker.get_recommendations.return_value = pd.DataFrame(
+        {"period": ["0m"], "strongBuy": [2], "buy": [5]}
+    )
+    mock_ticker.get_income_stmt.return_value = pd.DataFrame(
+        {"TotalRevenue": [100.0]}, index=[pd.Timestamp("2025-12-31")]
+    )
+    mock_ticker.get_balance_sheet.return_value = pd.DataFrame(
+        {"TotalAssets": [300.0]}, index=[pd.Timestamp("2025-12-31")]
+    )
+    mock_ticker.get_cash_flow.return_value = pd.DataFrame(
+        {"OperatingCashFlow": [40.0]}, index=[pd.Timestamp("2025-12-31")]
+    )
+    mock_ticker.get_calendar.return_value = {"earningsDate": "2026-04-20"}
+    mock_ticker.get_earnings_dates.return_value = pd.DataFrame(
+        {"Reported EPS": [2.0]}, index=[pd.Timestamp("2026-01-29")]
+    )
+    mock_ticker.get_dividends.return_value = pd.Series(
+        {pd.Timestamp("2026-02-01"): 0.25}
+    )
+    mock_ticker.get_splits.return_value = pd.Series({pd.Timestamp("2025-08-01"): 4.0})
+    mock_ticker.get_institutional_holders.return_value = pd.DataFrame(
+        {"holder": ["Vanguard"], "shares": [1000]}
+    )
+    mock_ticker.get_insider_purchases.return_value = pd.DataFrame({"shares": [10.0]})
+    mock_ticker.get_insider_transactions.return_value = pd.DataFrame({"shares": [20.0]})
 
     result = fetch_yahoo("run-1", "AAPL", 10, ticker=mock_ticker)
     assert result.stored_news == 1
@@ -47,6 +91,27 @@ def test_fetch_yahoo_returns_result_with_items():
     assert daily.payload["price_adjustment"]
     assert any(item.title == "Weekly adjusted OHLCV history" for item in result.items)
     assert any(item.title == "Monthly adjusted OHLCV history" for item in result.items)
+    analyst = next(
+        item for item in result.items if item.title.startswith("Analyst estimates")
+    )
+    assert analyst.payload["earnings_estimate"]["rows"][0]["avg"] == 2.0
+    assert any(item.title == "Analyst price targets" for item in result.items)
+    assert any(item.title == "Analyst recommendations" for item in result.items)
+    assert any(item.title.startswith("Income statement") for item in result.items)
+    assert any(item.title.startswith("Balance sheet") for item in result.items)
+    assert any(item.title.startswith("Cash flow statement") for item in result.items)
+    assert any(item.title == "Earnings calendar & dates" for item in result.items)
+    assert any(item.title == "Dividends & splits history" for item in result.items)
+    assert any(item.title == "Institutional holders" for item in result.items)
+    assert any(
+        item.title == "Insider purchases & transactions" for item in result.items
+    )
+    statements = [
+        item
+        for item in result.items
+        if item.title.startswith(("Income statement", "Balance sheet"))
+    ]
+    assert all(len(item.payload["data"]["rows"]) <= 4 for item in statements)
 
 
 def test_fetch_yahoo_uses_injected_ticker():
@@ -58,6 +123,37 @@ def test_fetch_yahoo_uses_injected_ticker():
     mock_ticker.get_news.return_value = []
     fetch_yahoo("run-1", "AAPL", 10, ticker=mock_ticker)
     mock_ticker.get_info.assert_called_once()
+
+
+def test_fetch_yahoo_uses_default_session_when_no_ticker():
+    mock_ticker = MagicMock()
+    mock_ticker.get_info.return_value = {}
+    mock_ticker.history.return_value = pd.DataFrame(
+        {"Close": [100.0]}, index=pd.to_datetime(["2026-01-01"], utc=True)
+    )
+    mock_ticker.get_news.return_value = []
+    with patch(
+        "trading_debate.connectors.yahoo.yfinance.Ticker", return_value=mock_ticker
+    ) as mock_factory:
+        with patch("trading_debate.connectors.yahoo._enable_retries") as mock_retries:
+            fetch_yahoo("run-1", "AAPL", 10)
+    mock_retries.assert_called_once()
+    mock_factory.assert_called_once_with("AAPL")
+
+
+def test_enable_retries_raises_yfinance_retry_budget():
+    from yfinance.utils import YfConfig
+
+    from trading_debate.connectors.yahoo import _enable_retries
+
+    original = YfConfig.network.retries
+    try:
+        _enable_retries()
+        assert int(YfConfig.network.retries) >= 3
+        _enable_retries()
+        assert int(YfConfig.network.retries) >= 3
+    finally:
+        YfConfig.network.retries = original
 
 
 @patch("trading_debate.connectors.google_news.feedparser")
@@ -280,7 +376,6 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
         [{"period": "2026-01-01", "actual": 1.2, "estimate": 1.1}],
         [{"period": "2026-01-01", "buy": 10, "hold": 2, "sell": 1}],
         {"targetMean": 200.0, "targetHigh": 220.0, "targetLow": 180.0},
-        {"data": [{"period": "2026-03-31", "epsAvg": 1.3}]},
         {"data": [{"endDate": "2026-01-01", "report": {}}]},
     ]
     items = fetch_finnhub("run-1", "AAPL", 10)
@@ -289,10 +384,10 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
     assert any(item.source == "Finnhub Earnings" for item in items)
     assert any(item.source == "Finnhub Recommendation Trends" for item in items)
     assert any(item.source == "Finnhub Price Targets" for item in items)
-    assert any(item.source == "Finnhub EPS Estimates" for item in items)
     assert any(item.source == "Finnhub Financials As Reported" for item in items)
     requested_urls = [call.args[0] for call in mock_request.call_args_list]
     assert not any("stock/revenue-estimate" in url for url in requested_urls)
+    assert not any("stock/eps-estimate" in url for url in requested_urls)
 
 
 @patch("trading_debate.connectors.finnhub.os.getenv")

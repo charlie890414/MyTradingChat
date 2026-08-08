@@ -449,6 +449,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "pypdf" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "yfinance" },
 ]
 
@@ -465,6 +466,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
     { name = "pypdf", specifier = ">=5" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "requests", specifier = ">=2.28" },
     { name = "yfinance", specifier = ">=0.2.54" },
 ]
 

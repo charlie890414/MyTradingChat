@@ -107,7 +107,6 @@ def fetch_finnhub(
             "Analyst recommendation trend",
         ),
         ("price-target", "Finnhub Price Targets", "Analyst price target summary"),
-        ("stock/eps-estimate", "Finnhub EPS Estimates", "Analyst EPS estimates"),
     )
     for endpoint, source, title in estimate_endpoints:
         try:

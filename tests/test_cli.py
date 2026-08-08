@@ -299,7 +299,7 @@ def test_cmd_fetch_updates_symbol_on_resolution(
     two_ticker.history.return_value = mock_history
     two_ticker.get_news.return_value = []
 
-    def ticker_for(symbol):
+    def ticker_for(symbol, **kwargs):
         if symbol.endswith(".TWO"):
             return two_ticker
         if symbol.endswith(".TW"):
