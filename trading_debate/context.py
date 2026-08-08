@@ -184,8 +184,7 @@ def assemble_context(
         ]
         if role == "news":
             summary = _latest_news_content_summary(contributions)
-            if summary:
-                base["news_content_summary"] = summary
+            base["news_content_summary"] = summary
         return base
 
     summaries = _required_summaries(run, contributions, role)
@@ -467,14 +466,14 @@ def _is_news_evidence(row: sqlite3.Row) -> bool:
 
 def _latest_news_content_summary(
     contributions: list[sqlite3.Row],
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     for row in reversed(contributions):
         if row["stage"] == "analysis" and row["actor"] == "news_content":
             try:
                 return validate_news_content_summary(row["summary_json"])
-            except ContextSummaryError:
-                return None
-    return None
+            except ContextSummaryError as exc:
+                raise ContextSummaryError(f"news_content: {exc}") from exc
+    raise ContextSummaryError("missing required analysis/news_content summary")
 
 
 def news_content_summaries(
@@ -569,6 +568,12 @@ def _required_summaries(
                 label += f"/round-{row['round_no']}"
             raise ContextSummaryError(f"{label}: {exc}") from exc
         _validate_contribution_summary(row, summary)
+        if row["stage"] == "analysis" and row["actor"] == "news_content":
+            try:
+                validate_news_content_summary(row["summary_json"])
+            except ContextSummaryError as exc:
+                label = f"{row['stage']}/{row['actor']}"
+                raise ContextSummaryError(f"{label}: {exc}") from exc
         _validate_summary_evidence_ids(summary)
         summaries.append(
             {
@@ -582,7 +587,13 @@ def _required_summaries(
     analysis_actors = {
         item["actor"] for item in summaries if item["stage"] == "analysis"
     }
-    missing = {"fundamentals", "technical", "news", "sentiment"} - analysis_actors
+    missing = {
+        "fundamentals",
+        "technical",
+        "news_content",
+        "news",
+        "sentiment",
+    } - analysis_actors
     if missing:
         raise ContextSummaryError(
             "missing analyst summaries: " + ", ".join(sorted(missing))

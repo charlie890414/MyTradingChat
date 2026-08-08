@@ -8,7 +8,13 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from .context import ContextSummaryError, parse_machine_summary
+from .context import (
+    ContextSummaryError,
+    _validate_contribution_summary,
+    _validate_summary_evidence_ids,
+    parse_machine_summary,
+    validate_news_content_summary,
+)
 from .db import connect, current_evidence, evidence_reference
 from .utils import as_json
 
@@ -142,9 +148,28 @@ def _render_status(
     if not any("fundamental" in title.lower() for title in titles):
         limitations.append("缺少基本面證據。")
     analyses = {row["actor"].lower() for row in parts if row["stage"] == "analysis"}
-    required_analyses = {"fundamentals", "technical", "news", "sentiment"}
+    required_analyses = {
+        "fundamentals",
+        "technical",
+        "news_content",
+        "news",
+        "sentiment",
+    }
     if not required_analyses.issubset(analyses):
-        limitations.append("四位指定分析師報告尚未齊備。")
+        limitations.append("新聞內文總結與四位指定分析師報告尚未齊備。")
+    for part in parts:
+        if part["stage"] not in {"analysis", "debate"}:
+            continue
+        try:
+            summary = parse_machine_summary(part["summary_json"])
+            _validate_contribution_summary(part, summary)
+            _validate_summary_evidence_ids(summary)
+            if part["stage"] == "analysis" and part["actor"] == "news_content":
+                validate_news_content_summary(part["summary_json"])
+        except ContextSummaryError:
+            limitations.append(
+                f"{part['stage']}/{part['actor']} 缺少有效的 machine-readable summary。"
+            )
     debates = [row for row in parts if row["stage"] == "debate"]
     expected_debates = [
         (actor, round_no)

@@ -240,10 +240,10 @@ Do not infer institutional accumulation, distribution, manipulation, or insider 
 
 The News & Events Analyst must:
 
-- Use available read-only web, browser, or connector tools to retrieve the body
-  text of linked news evidence for every item that lacks a complete body, not only
-  where article-level detail would materially affect the analysis. Rely on the
-  News Content Summarizer's deduplication (事件 A/B/C) to avoid double-counting
+- Consume the News Content Summarizer's per-article body availability and failure
+  status. It does not independently retrieve article bodies; this preserves role
+  isolation and makes the complete URL-attempt audit part of the evidence pack.
+  Rely on the summarizer's deduplication (事件 A/B/C) to avoid double-counting
   multiple headlines about the same underlying event.
 - Cite the existing evidence ID for facts found in the matching article body and
   note the canonical publisher URL when it differs from the evidence item URL.

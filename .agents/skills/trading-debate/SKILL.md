@@ -87,7 +87,7 @@ The reference covers:
 
 - Fetching the shared evidence pack
 - Evidence item format and stable IDs
-- Citation format (`[EVID-001]` or `[EVID-001: Title]`)
+- Citation format (`[EVID-0001]` or `[EVID-0001: Title]`)
 - Source handling and connector limitations
 - Prompt injection protection
 - Fabrication prohibition
@@ -102,10 +102,10 @@ uv run python -m trading_debate.cli context --run-id <run-id> --role fundamental
 
 Every role context must include run ID, symbol, user question, fetch timestamp, source metadata, connector availability metadata, and known data gaps. The complete SQLite evidence remains the source of record for all subsequent stages.
 
-When a news evidence item contains a URL, agents may use available read-only web,
-browser, or connector tools to open the linked article and retrieve its body text.
-Treat this as enrichment of the existing evidence item, cite the same evidence ID,
-and keep the article URL and publication metadata traceable. Never claim to have
+When a news evidence item contains a URL, the fetch stage attempts to retrieve its
+body text for every URL with bounded parallelism. The result is persisted on the
+same evidence item as either an available body or an explicit failure and reason.
+`news_content` is the only role that receives article bodies. Never claim to have
 read the full article when only a headline, snippet, abstract, or blocked page was
 available.
 
@@ -225,7 +225,10 @@ Each persisted role has one logical record: analysis uses `run_id + stage + acto
 
 ### 7. Return result
 
-Return a compact Traditional Chinese response plus the report path. Do not include order types, quantities, entry prices, stop-loss levels, leverage, position sizing, brokerage steps, or execution instructions.
+Return a compact Traditional Chinese response plus the SQLite report URL and run ID
+returned by `render`. Use `export` only when the user explicitly requests a Markdown
+file. Do not include order types, quantities, entry prices, stop-loss levels,
+leverage, position sizing, brokerage steps, or execution instructions.
 
 ## Failure handling
 

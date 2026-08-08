@@ -67,6 +67,7 @@ def _record_args(db_path: Path, **overrides: object) -> MagicMock:
             "technical analyst": "technical",
             "news analyst": "news",
             "sentiment analyst": "sentiment",
+            "news content": "news_content",
             "bull researcher": "bull",
             "bear researcher": "bear",
             "investment committee": "committee",
@@ -79,6 +80,17 @@ def _record_args(db_path: Path, **overrides: object) -> MagicMock:
         }
         if args.stage == "analysis":
             payload.update(stance="neutral", evidence_gaps=[])
+            if actor == "news_content":
+                payload["article_summaries"] = [
+                    {
+                        "evidence_id": "EVID-0001",
+                        "body_available": True,
+                        "event_date": "2026-08-08",
+                        "source_quality": "high",
+                        "summary": "event",
+                        "materiality": "medium",
+                    }
+                ]
         elif args.stage == "debate":
             payload.update(
                 round=args.round,
@@ -98,7 +110,7 @@ def _record_args(db_path: Path, **overrides: object) -> MagicMock:
 
 
 def _record_all_analyses(db_path: Path) -> None:
-    for actor in ("fundamentals", "technical", "news", "sentiment"):
+    for actor in ("news_content", "fundamentals", "technical", "news", "sentiment"):
         td.cmd_record(_record_args(db_path, actor=actor, content=f"{actor} report"))
 
 
@@ -344,6 +356,35 @@ def test_article_text_can_establish_news_relevance():
     relevant = _filter_relevant_news(enriched, "AVGO", "Broadcom Inc.")
     assert relevant == [item]
     assert item.payload["article_text"].startswith("Broadcom")
+    assert item.payload["article_text_status"]["state"] == "available"
+
+
+def test_article_text_attempts_every_url_and_records_failures():
+    items = [
+        EvidenceItem(
+            run_id="run-1",
+            source="Google News RSS",
+            title=f"Story {index}",
+            payload={},
+            url=f"https://example.com/{index}",
+        )
+        for index in range(13)
+    ]
+
+    def fetch(url: str) -> str:
+        if url.endswith("/3"):
+            raise TimeoutError("timed out")
+        return f"body for {url}"
+
+    with patch("trading_debate.cli.fetch_article_text", side_effect=fetch) as mocked:
+        _enrich_news_with_article_text(items, "AAPL", "Apple Inc.")
+
+    assert mocked.call_count == 13
+    assert items[3].payload["article_text_status"] == {
+        "state": "failed",
+        "detail": "timed out",
+    }
+    assert items[12].payload["article_text_status"]["state"] == "available"
 
 
 def test_cmd_fetch_updates_symbol_on_resolution(
@@ -974,15 +1015,20 @@ def test_cmd_record_valid(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    args = MagicMock()
-    args.db = db_path
-    args.run_id = "run-1"
-    args.content_file = None
-    args.content = "Analysis content"
-    args.stage = "analysis"
-    args.actor = "Fundamentals Analyst"
-    args.round = None
-    args.force = False
+    args = _record_args(
+        db_path,
+        content="Analysis content",
+        summary_json=json.dumps(
+            {
+                "actor": "fundamentals",
+                "confidence": "medium",
+                "evidence_ids": [],
+                "critical_evidence_ids": [],
+                "stance": "neutral",
+                "evidence_gaps": [],
+            }
+        ),
+    )
     td.cmd_record(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
@@ -1001,15 +1047,20 @@ def test_cmd_record_requires_evidence(tmp_path: Path):
     con.commit()
     con.close()
 
-    args = MagicMock()
-    args.db = db_path
-    args.run_id = "run-1"
-    args.content_file = None
-    args.content = "Analysis content"
-    args.stage = "analysis"
-    args.actor = "Fundamentals Analyst"
-    args.round = None
-    args.force = False
+    args = _record_args(
+        db_path,
+        content="Analysis content",
+        summary_json=json.dumps(
+            {
+                "actor": "fundamentals",
+                "confidence": "medium",
+                "evidence_ids": [],
+                "critical_evidence_ids": [],
+                "stance": "neutral",
+                "evidence_gaps": [],
+            }
+        ),
+    )
     with pytest.raises(SystemExit, match="no evidence"):
         td.cmd_record(args)
 
@@ -1025,15 +1076,21 @@ def test_cmd_record_force_allows_empty_run(tmp_path: Path, capsys):
     con.commit()
     con.close()
 
-    args = MagicMock()
-    args.db = db_path
-    args.run_id = "run-1"
-    args.content_file = None
-    args.content = "Analysis content"
-    args.stage = "analysis"
-    args.actor = "Fundamentals Analyst"
-    args.round = None
-    args.force = True
+    args = _record_args(
+        db_path,
+        content="Analysis content",
+        force=True,
+        summary_json=json.dumps(
+            {
+                "actor": "fundamentals",
+                "confidence": "medium",
+                "evidence_ids": [],
+                "critical_evidence_ids": [],
+                "stance": "neutral",
+                "evidence_gaps": [],
+            }
+        ),
+    )
     td.cmd_record(args)
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())

@@ -268,6 +268,7 @@ def test_news_context_deduplicates_canonical_url_and_title(tmp_path: Path):
         {"summary": "d"},
         url="https://example.com/story",
     )
+    _insert_contribution(db_path, "analysis", "news_content", _news_summary_json())
 
     run, evidence, contributions = _run_rows(db_path)
     context = assemble_context(run, evidence, contributions, "news")
@@ -364,6 +365,7 @@ def test_debate_context_uses_summaries_and_previous_full_turn(tmp_path: Path):
     evidence_id = _insert_evidence(
         db_path, "Yahoo Finance", "One-year price snapshot", {"close": 100}
     )
+    _insert_contribution(db_path, "analysis", "news_content", _news_summary_json())
     for actor in ("fundamentals", "technical", "news", "sentiment"):
         _insert_contribution(
             db_path,
@@ -379,7 +381,7 @@ def test_debate_context_uses_summaries_and_previous_full_turn(tmp_path: Path):
 
     assert context["next_turn"] == {"actor": "bear", "round": 1}
     assert context["previous_opposing_turn"]["content"] == "# Report"
-    assert len(context["contribution_summaries"]) == 5
+    assert len(context["contribution_summaries"]) == 6
     assert [item["evidence_id"] for item in context["referenced_evidence"]] == [
         evidence_id
     ]
@@ -388,6 +390,7 @@ def test_debate_context_uses_summaries_and_previous_full_turn(tmp_path: Path):
 def test_committee_context_requires_every_debate_summary(tmp_path: Path):
     db_path = tmp_path / "test.db"
     _setup_run(db_path, rounds=2)
+    _insert_contribution(db_path, "analysis", "news_content", _news_summary_json())
     for actor in ("fundamentals", "technical", "news", "sentiment"):
         _insert_contribution(db_path, "analysis", actor, _summary(actor=actor))
     for actor in ("bull", "bear"):

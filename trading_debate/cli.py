@@ -15,6 +15,8 @@ from .connectors import CONNECTORS, fetch_yahoo
 from .context import (
     CONTEXT_ROLES,
     ContextSummaryError,
+    _validate_contribution_summary,
+    _validate_summary_evidence_ids,
     assemble_context,
     parse_machine_summary,
     validate_news_content_summary,
@@ -51,7 +53,6 @@ DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
 DEFAULT_ENV = ROOT.parent / ".env"
 
 _MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
-_MAX_ARTICLE_FETCHES = 12
 
 
 def _connector_status_item(
@@ -100,7 +101,7 @@ def _filter_relevant_news(
 def _enrich_news_with_article_text(
     items: list[EvidenceItem], symbol: str, company_name: str | None
 ) -> list[EvidenceItem]:
-    """Attach sanitized article text to a bounded set of news candidates."""
+    """Attach sanitized article text and an explicit outcome to every news URL."""
     candidates = [item for item in items if is_news_source(item.source) and item.url]
     candidates.sort(
         key=lambda item: (
@@ -112,9 +113,7 @@ def _enrich_news_with_article_text(
             )
         )
     )
-    unique_candidates = list({item.dedup_key: item for item in candidates}.values())[
-        :_MAX_ARTICLE_FETCHES
-    ]
+    unique_candidates = candidates
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
         futures = {
             executor.submit(fetch_article_text, item.url): item
@@ -123,10 +122,19 @@ def _enrich_news_with_article_text(
         for future, item in futures.items():
             try:
                 article_text = future.result()
-            except Exception:  # pragma: no cover - defensive
-                continue
-            if article_text and isinstance(item.payload, dict):
-                item.payload = {**item.payload, "article_text": article_text}
+            except Exception as exc:  # pragma: no cover - defensive provider boundary
+                article_text = None
+                status = {"state": "failed", "detail": str(exc)}
+            else:
+                status = (
+                    {"state": "available"}
+                    if article_text
+                    else {"state": "failed", "detail": "empty article body"}
+                )
+            payload = item.payload if isinstance(item.payload, dict) else {}
+            item.payload = {**payload, "article_text_status": status}
+            if article_text:
+                item.payload["article_text"] = article_text
     return items
 
 
@@ -158,6 +166,30 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
+    try:
+        _cmd_fetch(args)
+    except Exception:
+        with connect(args.db) as con:
+            batch = con.execute(
+                "SELECT id FROM evidence_batches WHERE run_id = ? "
+                "AND status = 'fetching' ORDER BY rowid DESC LIMIT 1",
+                (args.run_id,),
+            ).fetchone()
+            if batch:
+                finish_evidence_batch(
+                    con,
+                    batch["id"],
+                    status="failed",
+                    error_detail="fetch lifecycle aborted unexpectedly",
+                )
+                con.execute(
+                    "UPDATE runs SET status = 'failed' WHERE id = ?",
+                    (args.run_id,),
+                )
+        raise
+
+
+def _cmd_fetch(args: argparse.Namespace) -> None:
     news_limit = getattr(args, "news_limit", 10)
     if not isinstance(news_limit, int):
         news_limit = 10
@@ -323,6 +355,7 @@ def cmd_context(args: argparse.Namespace) -> None:
 
 
 _ANALYSTS = {"fundamentals", "technical", "news", "sentiment"}
+_ANALYSIS_ROLES = _ANALYSTS | {"news_content"}
 
 
 def _option(args: argparse.Namespace, name: str) -> str | None:
@@ -444,8 +477,10 @@ def _validate_record(
                 (args.run_id,),
             ).fetchall()
         }
-        if not _ANALYSTS.issubset(analyses):
-            raise SystemExit("Debate requires all four analyst reports")
+        if not _ANALYSIS_ROLES.issubset(analyses):
+            raise SystemExit(
+                "Debate requires news_content and all four analyst reports"
+            )
         turns = con.execute(
             "SELECT actor, round_no FROM contributions WHERE run_id = ? "
             "AND stage = 'debate' ORDER BY round_no, id",
@@ -479,8 +514,10 @@ def _validate_record(
                 (args.run_id,),
             ).fetchall()
         }
-        if not _ANALYSTS.issubset(analyses):
-            raise SystemExit("Verdict requires all four analyst reports")
+        if not _ANALYSIS_ROLES.issubset(analyses):
+            raise SystemExit(
+                "Verdict requires news_content and all four analyst reports"
+            )
         debate_turns = con.execute(
             "SELECT actor, round_no FROM contributions WHERE run_id = ? "
             "AND stage = 'debate' ORDER BY round_no, id",
@@ -504,9 +541,13 @@ def _validate_machine_summary_at_write(
     summary_json: str | None,
     verdict: str | None,
     confidence: str | None,
+    *,
+    require_summary: bool,
 ) -> None:
     """Validate the independently stored machine summary before persistence."""
     if summary_json is None:
+        if require_summary:
+            raise SystemExit("New contributions require --summary-json")
         return
     try:
         summary = parse_machine_summary(summary_json)
@@ -534,6 +575,19 @@ def _validate_machine_summary_at_write(
             "Invalid machine-readable summary: unknown evidence IDs: "
             + ", ".join(unknown_ids)
         )
+    if args.stage in {"analysis", "debate"}:
+        try:
+            _validate_contribution_summary(
+                {
+                    "stage": args.stage,
+                    "actor": actor,
+                    "round_no": args.round,
+                },
+                summary,
+            )
+            _validate_summary_evidence_ids(summary)
+        except ContextSummaryError as exc:
+            raise SystemExit(f"Invalid machine-readable summary: {exc}") from exc
     if args.stage == "analysis":
         if summary.get("actor") != actor:
             raise SystemExit(
@@ -598,8 +652,17 @@ def cmd_record(args: argparse.Namespace) -> None:
                 )
             except (TypeError, json.JSONDecodeError) as exc:
                 raise SystemExit("--summary-json must be a valid JSON object") from exc
+        existing = _existing_contribution(
+            con, args.run_id, args.stage, actor, args.round
+        )
         _validate_machine_summary_at_write(
-            con, args, actor, summary_json, verdict, confidence
+            con,
+            args,
+            actor,
+            summary_json,
+            verdict,
+            confidence,
+            require_summary=existing is None,
         )
         if args.stage == "analysis" and actor == "news_content":
             try:
@@ -618,9 +681,6 @@ def cmd_record(args: argparse.Namespace) -> None:
                     "Invalid news content summary: unknown evidence IDs: "
                     + ", ".join(unknown_ids)
                 )
-        existing = _existing_contribution(
-            con, args.run_id, args.stage, actor, args.round
-        )
         if existing:
             same_content = (
                 existing["content"] == content.strip()

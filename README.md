@@ -62,6 +62,7 @@ Use canonical roles when persisting work. Display names such as
 are accepted for compatibility, but are stored as canonical roles.
 
 ```shell
+trading-debate record --run-id $run.run_id --stage analysis --actor news_content --content-file news-content.md --summary-json '<news-content-summary-json>'
 trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md --summary-json '<fundamentals-summary-json>'
 trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md --summary-json '<technical-summary-json>'
 trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md --summary-json '<news-summary-json>'
@@ -75,8 +76,8 @@ trading-debate search --query NVDA
 ```
 
 `context` requires a role and returns a role-specific view of the same persisted
-evidence. Analyst roles are `fundamentals`, `technical`, `news`, and `sentiment`;
-later stages use `debate` and `committee`. The technical view samples the most
+evidence. Analyst roles are `news_content`, `fundamentals`, `technical`, `news`,
+and `sentiment`; later stages use `debate` and `committee`. The technical view samples the most
 recent 30 daily, 26 weekly, and 12 monthly OHLCV bars while preserving the full
 history in SQLite. Each fetch is stored as an immutable evidence batch; contexts
 and reports use the latest completed or partial batch, never a mixture of dates.
