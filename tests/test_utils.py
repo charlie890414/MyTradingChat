@@ -91,6 +91,22 @@ def test_as_json_sorted():
     assert list(parsed.keys()) == ["a", "z"]
 
 
+def test_as_json_normalizes_non_finite_numbers():
+    assert json.loads(td.as_json({"value": float("nan")})) == {"value": None}
+
+
+def test_request_errors_redact_sensitive_query_values():
+    with patch("trading_debate.utils.urlopen", side_effect=ConnectionResetError):
+        with pytest.raises(td.RequestError) as exc_info:
+            td.request_json(
+                "https://example.com/api",
+                {"token": "private-token", "query": "public"},
+                max_retries=1,
+            )
+    assert "private-token" not in str(exc_info.value)
+    assert "token=REDACTED" in str(exc_info.value)
+
+
 def test_date_range_days():
     start, end = td.date_range_days(365)
     end_date = datetime.fromisoformat(end)

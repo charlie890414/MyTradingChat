@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 import trading_debate as td
-from trading_debate.db import MigrationError
+from trading_debate.db import (
+    MigrationError,
+    create_evidence_batch,
+    current_evidence,
+    finish_evidence_batch,
+)
 from trading_debate.models import EvidenceItem
 
 
@@ -22,7 +27,34 @@ def test_connect(tmp_path: Path):
     assert "runs" in table_names
     assert "evidence" in table_names
     assert "contributions" in table_names
+    assert "evidence_batches" in table_names
     con.close()
+
+
+def test_current_evidence_uses_latest_completed_batch(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES ('run-1', 'AAPL', 'Test', 1, ?, 'active')",
+            (td.utc_now(),),
+        )
+        create_evidence_batch(con, "batch-old", "run-1", "AAPL")
+        td.insert_evidence_items(
+            con,
+            [EvidenceItem("run-1", "Source", "Old", {"value": 1})],
+            batch_id="batch-old",
+        )
+        finish_evidence_batch(con, "batch-old", status="completed")
+        create_evidence_batch(con, "batch-new", "run-1", "AAPL")
+        td.insert_evidence_items(
+            con,
+            [EvidenceItem("run-1", "Source", "New", {"value": 2})],
+            batch_id="batch-new",
+        )
+        finish_evidence_batch(con, "batch-new", status="completed")
+
+        assert [row["title"] for row in current_evidence(con, "run-1")] == ["New"]
 
 
 def test_connect_creates_directories(tmp_path: Path):

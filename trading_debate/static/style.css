@@ -79,7 +79,7 @@ h2 { margin: 0; font-size: 25px; letter-spacing: -0.045em; }
 
 .archive-hero { max-width: 770px; margin-bottom: 54px; }
 .archive-hero .eyebrow, .filter-panel .eyebrow, .register-heading .eyebrow, .case-header .eyebrow, .case-section .eyebrow, .verdict-section .eyebrow, .report-page .eyebrow { margin-bottom: 11px; color: var(--blue); }
-.ledger-summary { display: grid; grid-template-columns: 2fr repeat(4, 1fr); margin-bottom: 42px; border-top: 2px solid var(--evergreen); border-bottom: 1px solid var(--rule); }
+.ledger-summary { display: grid; grid-template-columns: 2fr repeat(5, 1fr); margin-bottom: 42px; border-top: 2px solid var(--evergreen); border-bottom: 1px solid var(--rule); }
 .summary-total, .summary-item { min-height: 90px; display: flex; flex-direction: column; justify-content: center; padding: 14px 18px; border-right: 1px solid var(--rule); transition: background var(--duration) var(--ease); }
 .summary-total:hover, .summary-item:hover { background: var(--paper-bright); }
 .summary-item:last-child { border: 0; }
@@ -127,6 +127,7 @@ th:nth-child(1) { width: 38px; } th:nth-child(2) { width: 86px; } th:nth-child(3
 .badge { display: inline-block; padding: 3px 6px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1.2; white-space: nowrap; transition: background var(--duration) var(--ease), color var(--duration) var(--ease); }
 .status-completed, .verdict-buy { color: var(--green); background: var(--green-pale); }
 .status-active { color: var(--blue); background: var(--blue-pale); }
+.status-fetching { color: #5c4f98; background: #eee9ff; }
 .status-incomplete, .verdict-hold, .verdict-abstain { color: #88641a; background: var(--gold-pale); }
 .status-failed, .verdict-reduce { color: var(--red); background: var(--red-pale); }
 .text-action { color: var(--evergreen); font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; transition: color var(--duration) var(--ease); }

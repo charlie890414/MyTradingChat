@@ -201,6 +201,18 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys, empty_connectors):
         "trading_debate.connectors.yahoo.yfinance.Ticker", return_value=mock_ticker
     ):
         td.cmd_fetch(args)
+
+    with td.connect(db_path) as con:
+        batch = con.execute(
+            "SELECT status, resolved_symbol FROM evidence_batches WHERE run_id = 'run-1'"
+        ).fetchone()
+        evidence_batch_ids = con.execute(
+            "SELECT DISTINCT batch_id FROM evidence WHERE run_id = 'run-1'"
+        ).fetchall()
+    assert batch["status"] == "completed"
+    assert batch["resolved_symbol"] == "AAPL"
+    assert len(evidence_batch_ids) == 1
+    assert evidence_batch_ids[0]["batch_id"]
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
@@ -862,18 +874,32 @@ def test_cmd_render(tmp_path: Path, capsys):
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
-    report_path = Path(parsed["report_path"])
-    assert report_path == (args.reports / "2026-07-30" / "AAPL" / "run-1" / "report.md")
-    assert report_path.exists()
-    content = report_path.read_text(encoding="utf-8")
+    assert parsed["report_url"] == "/runs/run-1/report"
+    assert not args.reports.exists()
+    with td.connect(db_path) as con:
+        run = con.execute(
+            "SELECT status, report_path FROM runs WHERE id = 'run-1'"
+        ).fetchone()
+    assert run["status"] == "incomplete"
+    assert run["report_path"] is None
+    from trading_debate.render import render_report_markdown
+
+    with td.connect(db_path) as con:
+        run = con.execute("SELECT * FROM runs WHERE id = 'run-1'").fetchone()
+        evidence = con.execute(
+            "SELECT * FROM evidence WHERE run_id = 'run-1'"
+        ).fetchall()
+        parts = con.execute(
+            "SELECT * FROM contributions WHERE run_id = 'run-1'"
+        ).fetchall()
+    content = render_report_markdown(run, evidence, parts).markdown
     assert "AAPL" in content
     assert "Fundamentals Analyst" in content
     assert "Analysis content" in content
     assert "Full article body" not in content
 
-    report_path.write_text("old report\n", encoding="utf-8")
     td.cmd_render(args)
-    assert report_path.read_text(encoding="utf-8") != "old report\n"
+    assert json.loads(capsys.readouterr().out)["report_url"] == "/runs/run-1/report"
 
 
 def test_cmd_record_unknown_run(tmp_path: Path, capsys):

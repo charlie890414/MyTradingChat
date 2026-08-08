@@ -8,4 +8,3 @@ services:
       - "${WEB_PORT:-8765}:8765"
     volumes:
       - ./data:/app/data
-      - ./reports:/app/reports

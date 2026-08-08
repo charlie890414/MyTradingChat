@@ -25,11 +25,15 @@
   </main>
   <div class="modal" id="delete-modal" aria-hidden="true">
     <form class="dialog" method="post" id="delete-form">
+      <input name="csrf_token" type="hidden" value="{{ csrf_token }}">
       <p class="eyebrow danger-text">永久操作</p>
       <h2>刪除研究</h2>
-      <p>這將永久刪除研究、證據、分析、辯論及報表目錄，無法復原。</p>
+      <p>這將永久刪除研究、證據、分析與辯論，無法復原。</p>
       <p id="delete-question"></p>
       <p class="run-id" id="delete-run-id"></p>
+      <label>輸入 <code id="delete-confirmation-value"></code> 以確認
+        <input name="confirmation" id="delete-confirmation" autocomplete="off" required>
+      </label>
       <div class="dialog-actions">
         <button class="button secondary" type="button" data-close-modal>取消</button>
         <button class="danger" type="submit">確認刪除</button>
@@ -40,7 +44,9 @@
     const m = document.getElementById('delete-modal'),
       f = document.getElementById('delete-form'),
       rid = document.getElementById('delete-run-id'),
-      q = document.getElementById('delete-question');
+      q = document.getElementById('delete-question'),
+      confirmation = document.getElementById('delete-confirmation'),
+      confirmationValue = document.getElementById('delete-confirmation-value');
 
     function openDelete(action, summary, ids) {
       f.action = action;
@@ -54,6 +60,8 @@
       });
       q.textContent = summary;
       rid.textContent = ids ? '共 ' + ids.length + ' 筆研究' : action.split('/')[2];
+      confirmation.value = '';
+      confirmationValue.textContent = ids ? 'DELETE' : action.split('/')[2];
       m.classList.add('open');
       m.setAttribute('aria-hidden', 'false');
     }

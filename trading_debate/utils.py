@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import re
 import socket
 import ssl
@@ -288,7 +289,37 @@ def fetch_article_text(
 
 
 def as_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, default=str, sort_keys=True)
+    """Serialize only standards-compliant JSON for persisted and CLI data."""
+    return json.dumps(
+        _json_safe(value), ensure_ascii=False, sort_keys=True, allow_nan=False
+    )
+
+
+_SENSITIVE_QUERY_KEYS = frozenset({"api_key", "apikey", "key", "secret", "token"})
+
+
+def redact_url(url: str) -> str:
+    """Return a safe URL suitable for diagnostics without query credentials."""
+    parsed = urlsplit(url)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    redacted = [
+        (key, "REDACTED" if key.casefold() in _SENSITIVE_QUERY_KEYS else value)
+        for key, value in query
+    ]
+    return urlunsplit(parsed._replace(query=urlencode(redacted)))
+
+
+def _json_safe(value: Any) -> Any:
+    """Normalize provider values without silently stringifying unknown objects."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "item"):
+        return _json_safe(value.item())
+    return value
 
 
 def request_json(
@@ -303,6 +334,8 @@ def request_json(
     backoff: float = 1.0,
     ssl_context: ssl.SSLContext | None = None,
 ) -> Any:
+    if max_retries < 1:
+        raise ValueError("max_retries must be at least 1")
     if params:
         query = urlencode(
             {key: value for key, value in params.items() if value is not None}
@@ -318,7 +351,7 @@ def request_json(
     for attempt in range(max_retries):
         try:
             with urlopen(request, timeout=timeout, context=ssl_context) as response:  # nosec B310: fixed HTTPS provider URLs only
-                return json.loads(response.read().decode("utf-8"))
+                return _json_safe(json.loads(response.read().decode("utf-8")))
         except (
             HTTPError,
             URLError,
@@ -329,7 +362,7 @@ def request_json(
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(backoff * (2**attempt))
-    raise RequestError(f"Failed to fetch {url}: {last_exc}") from last_exc
+    raise RequestError(f"Failed to fetch {redact_url(url)}: {last_exc}") from last_exc
 
 
 def request_text(
@@ -343,6 +376,8 @@ def request_text(
     backoff: float = 1.0,
 ) -> str:
     """Fetch text from a fixed trusted HTTPS endpoint with retry handling."""
+    if max_retries < 1:
+        raise ValueError("max_retries must be at least 1")
     request = Request(
         url,
         data=body,
@@ -358,7 +393,7 @@ def request_text(
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(backoff * (2**attempt))
-    raise RequestError(f"Failed to fetch {url}: {last_exc}") from last_exc
+    raise RequestError(f"Failed to fetch {redact_url(url)}: {last_exc}") from last_exc
 
 
 def request_bytes(
@@ -370,6 +405,8 @@ def request_bytes(
     backoff: float = 1.0,
 ) -> bytes:
     """Fetch a document from a fixed trusted HTTPS endpoint with retries."""
+    if max_retries < 1:
+        raise ValueError("max_retries must be at least 1")
     request = Request(url, headers={"User-Agent": _USER_AGENT, **(headers or {})})
     last_exc: Exception | None = None
     for attempt in range(max_retries):
@@ -380,4 +417,4 @@ def request_bytes(
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(backoff * (2**attempt))
-    raise RequestError(f"Failed to fetch {url}: {last_exc}") from last_exc
+    raise RequestError(f"Failed to fetch {redact_url(url)}: {last_exc}") from last_exc

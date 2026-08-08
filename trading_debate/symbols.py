@@ -20,6 +20,9 @@ def normalize_symbol(symbol: str) -> str:
     codes already ending in ``.TW`` or ``.TWO`` are left unchanged.
     US-style tickers are returned upper-cased.
     """
+    symbol = symbol.strip()
+    if not symbol or not re.fullmatch(r"[A-Za-z0-9.^=-]+", symbol):
+        raise ValueError("symbol contains unsupported characters")
     code = taiwan_code(symbol)
     if code and not re.search(r"\.(?:TW|TWO)$", symbol, re.IGNORECASE):
         return f"{code}.TW"
@@ -82,6 +85,9 @@ def resolve_taiwan_yahoo_symbol(symbol: str) -> str:
     if not code:
         return symbol.upper()
 
+    normalized = symbol.upper()
+    if normalized.endswith((".TW", ".TWO")):
+        return normalized
     candidates = [f"{code}.TW", f"{code}.TWO"]
     for candidate in candidates:
         try:

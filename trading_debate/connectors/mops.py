@@ -74,9 +74,8 @@ def _announcement_items(
     run_id: str, code: str, rows: Iterable[dict[str, Any]], limit: int
 ) -> list[EvidenceItem]:
     items: list[EvidenceItem] = []
-    for row in list(rows)[-limit:]:
-        if _company_code(row) != code:
-            continue
+    company_rows = [row for row in rows if _company_code(row) == code]
+    for row in company_rows[-limit:]:
         title = str(row.get("主旨") or row.get("CompanyName") or code).strip()
         published_at = str(
             row.get("發言日期") or row.get("Date") or row.get("出表日期") or ""

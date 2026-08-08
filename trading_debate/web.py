@@ -7,7 +7,7 @@ from __future__ import annotations
 import html
 import mimetypes
 import re
-import shutil
+import secrets
 import sqlite3
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,10 +18,11 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
 from .context import news_content_summary_status
-from .db import connect, delete_run, evidence_reference
+from .db import connect, current_evidence, delete_run, evidence_reference
+from .render import render_report_markdown
 from .utils import is_news_source
 
-_STATUSES = ("active", "incomplete", "completed", "failed")
+_STATUSES = ("active", "fetching", "incomplete", "completed", "failed")
 _VERDICTS = ("buy", "hold", "reduce", "abstain")
 _MACHINE_SUMMARY_RE = re.compile(
     r"\n## Machine-readable summary\s*```json\s*\{.*?\}\s*```\s*$",
@@ -30,6 +31,7 @@ _MACHINE_SUMMARY_RE = re.compile(
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
+_csrf_token = ""
 
 _env = Environment(
     loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -79,7 +81,9 @@ def _resolve_report_path(stored_path: str, reports_path: Path) -> Path:
 
 
 def _layout(title: str, content: str) -> str:
-    return _env.get_template("layout.html").render(title=title, content=content)
+    return _env.get_template("layout.html").render(
+        title=title, content=content, csrf_token=_csrf_token
+    )
 
 
 def _options(values: tuple[str, ...], selected: str) -> str:
@@ -138,7 +142,8 @@ def _display_contributions(
 
 class ResearchApp(BaseHTTPRequestHandler):
     db_path: Path
-    reports_path: Path
+    csrf_token: str
+    _MAX_FORM_BYTES = 16_384
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -166,12 +171,26 @@ class ResearchApp(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        form = parse_qs(
-            self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
-        )
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if not 0 <= content_length <= self._MAX_FORM_BYTES:
+                raise ValueError
+            form = parse_qs(self.rfile.read(content_length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            self._send(
+                HTTPStatus.BAD_REQUEST,
+                _layout("無效請求", "<h1>無效請求</h1><p>表單格式或大小無效。</p>"),
+            )
+            return
+        if not secrets.compare_digest(form.get("csrf_token", [""])[0], self.csrf_token):
+            self._send(
+                HTTPStatus.FORBIDDEN,
+                _layout("未刪除", "<h1>未刪除</h1><p>請重新開啟頁面後再試。</p>"),
+            )
+            return
         if parsed.path == "/runs/delete":
             run_ids = list(dict.fromkeys(form.get("run_id", [])))
-            if not run_ids:
+            if not run_ids or form.get("confirmation", [""])[0] != "DELETE":
                 self._send(
                     HTTPStatus.BAD_REQUEST,
                     _layout("未刪除", "<h1>未刪除</h1><p>確認文字不符。</p>"),
@@ -194,6 +213,12 @@ class ResearchApp(BaseHTTPRequestHandler):
             )
             return
         run_id = unquote(parsed.path[6:-7])
+        if form.get("confirmation", [""])[0] != run_id:
+            self._send(
+                HTTPStatus.BAD_REQUEST,
+                _layout("未刪除", "<h1>未刪除</h1><p>確認文字不符。</p>"),
+            )
+            return
         warning = self._delete(run_id)
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", "/?message=" + quote(warning or "研究已刪除"))
@@ -249,15 +274,13 @@ class ResearchApp(BaseHTTPRequestHandler):
     def _detail(self, run_id: str) -> None:
         with connect(self.db_path) as con:
             run = con.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-            evidence = con.execute(
-                "SELECT * FROM evidence WHERE run_id = ? ORDER BY id", (run_id,)
-            ).fetchall()
+            evidence = current_evidence(con, run_id)
             parts = con.execute(
                 "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", (run_id,)
             ).fetchall()
-            latest_evidence = con.execute(
-                "SELECT MAX(fetched_at) FROM evidence WHERE run_id = ?", (run_id,)
-            ).fetchone()[0]
+            latest_evidence = max(
+                (item["fetched_at"] for item in evidence), default=None
+            )
         if not run:
             self._send(
                 HTTPStatus.NOT_FOUND,
@@ -265,9 +288,8 @@ class ResearchApp(BaseHTTPRequestHandler):
             )
             return
         report = (
-            f"<a class='button' href='/runs/{quote(run_id)}/report'>檢視 Markdown 報表</a>"
-            if run["report_path"]
-            else "<span class='muted'>尚未產生報表</span>"
+            f"<a class='button' href='/runs/{quote(run_id, safe='')}/report'>"
+            "檢視 Markdown 報表</a>"
         )
         actor_labels = {
             "fundamentals": "基本面分析",
@@ -334,15 +356,12 @@ class ResearchApp(BaseHTTPRequestHandler):
 
     def _report(self, run_id: str) -> None:
         with connect(self.db_path) as con:
-            row = con.execute(
-                "SELECT report_path FROM runs WHERE id = ?", (run_id,)
-            ).fetchone()
-        path = (
-            _resolve_report_path(row["report_path"], self.reports_path)
-            if row and row["report_path"]
-            else None
-        )
-        if not path or not path.is_file():
+            run = con.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            evidence = current_evidence(con, run_id)
+            parts = con.execute(
+                "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", (run_id,)
+            ).fetchall()
+        if not run:
             self._send(
                 HTTPStatus.NOT_FOUND,
                 _layout(
@@ -351,13 +370,14 @@ class ResearchApp(BaseHTTPRequestHandler):
                 ),
             )
             return
+        rendered = render_report_markdown(run, evidence, parts)
         self._send(
             HTTPStatus.OK,
             _layout(
                 "Markdown 報表",
                 _env.get_template("report.html").render(
                     run_id=run_id,
-                    report_text=path.read_text(encoding="utf-8"),
+                    report_text=rendered.markdown,
                 ),
             ),
         )
@@ -391,21 +411,6 @@ class ResearchApp(BaseHTTPRequestHandler):
             run = delete_run(con, run_id)
         if not run:
             return "研究不存在或已刪除"
-        if not run["report_path"]:
-            return None
-        try:
-            path = _resolve_report_path(run["report_path"], self.reports_path).resolve()
-            if path.is_relative_to(self.reports_path.resolve()):
-                if path.parent.name == run_id:
-                    shutil.rmtree(path.parent)
-                else:
-                    # Legacy reports shared a symbol directory. Remove only the
-                    # referenced file so deleting one run cannot erase siblings.
-                    path.unlink(missing_ok=True)
-            else:
-                return "研究資料已刪除；報表位於預期目錄外，因此未刪除"
-        except OSError as exc:
-            return f"研究資料已刪除，但報表無法刪除：{exc}"
         return None
 
     def _send(self, status: HTTPStatus, body: str) -> None:
@@ -417,13 +422,13 @@ class ResearchApp(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
-def serve(
-    db_path: Path, reports_path: Path, host: str = "127.0.0.1", port: int = 8765
-) -> None:
+def serve(db_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
     """Serve the local UI until interrupted by the user."""
+    global _csrf_token
+    _csrf_token = secrets.token_urlsafe(32)
     handler = type(
         "ConfiguredResearchApp",
         (ResearchApp,),
-        {"db_path": db_path, "reports_path": reports_path},
+        {"db_path": db_path, "csrf_token": _csrf_token},
     )
     ThreadingHTTPServer((host, port), handler).serve_forever()

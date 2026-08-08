@@ -212,12 +212,12 @@ Persist the Committee report and render the final Markdown:
 
 ```shell
 uv run python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
-uv run python -m trading_debate.cli render --run-id <run-id> --reports reports
+uv run python -m trading_debate.cli render --run-id <run-id>
 ```
 
 The verdict stage requires either `--verdict <buy|hold|reduce>` with `--confidence <low|medium|high>`, or `--abstain`. An abstention keeps `verdict` null and `render` marks the run as `incomplete` while preserving the Committee explanation.
 
-`render` writes `reports/<YYYY-MM-DD>/<SYMBOL>/<RUN-ID>/report.md` combining the evidence pack, analyst reports, debate turns, and verdict. The run-specific directory prevents same-day research for one symbol from overwriting an earlier report.
+`render` validates and finalizes the run. The web UI renders the Markdown report directly from SQLite; use `export --run-id <run-id> --output <path>` only when an explicit Markdown file is required.
 
 Confirm every `record` echoed the expected run-id. If any echoed run-id differs, stop and investigate instead of rendering a run that is missing required parts.
 

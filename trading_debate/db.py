@@ -84,7 +84,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
           source TEXT NOT NULL, title TEXT NOT NULL, url TEXT,
           published_at TEXT,           payload_json TEXT NOT NULL,
           fetched_at TEXT NOT NULL,
+          batch_id TEXT REFERENCES evidence_batches(id),
           dedup_key TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS evidence_batches (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL REFERENCES runs(id),
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          status TEXT NOT NULL CHECK(
+            status IN ('fetching', 'completed', 'partial', 'failed')
+          ),
+          resolved_symbol TEXT NOT NULL,
+          error_detail TEXT
         );
 
         CREATE TABLE IF NOT EXISTS contributions (
@@ -98,12 +110,13 @@ def connect(db_path: Path) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS ix_evidence_run
           ON evidence(run_id);
         CREATE UNIQUE INDEX IF NOT EXISTS ux_evidence_dedup
-          ON evidence(run_id, source, dedup_key);
+          ON evidence(run_id, batch_id, dedup_key);
         CREATE INDEX IF NOT EXISTS ix_contributions_run
           ON contributions(run_id, id);
         """
     )
     _migrate_contributions(con)
+    _migrate_evidence_batches(con)
     _migrate_evidence_dedup(con)
     return con
 
@@ -168,7 +181,7 @@ def _migrate_contributions(con: sqlite3.Connection) -> None:
 def _migrate_evidence_dedup(con: sqlite3.Connection) -> None:
     """Move legacy evidence to source-scoped keys before cross-source dedup."""
     index_columns = con.execute("PRAGMA index_info(ux_evidence_dedup)").fetchall()
-    if [row[2] for row in index_columns] == ["run_id", "dedup_key"]:
+    if [row[2] for row in index_columns] == ["run_id", "batch_id", "dedup_key"]:
         return
     with con:
         con.execute(
@@ -177,8 +190,66 @@ def _migrate_evidence_dedup(con: sqlite3.Connection) -> None:
         )
         con.execute("DROP INDEX IF EXISTS ux_evidence_dedup")
         con.execute(
-            "CREATE UNIQUE INDEX ux_evidence_dedup ON evidence(run_id, dedup_key)"
+            "CREATE UNIQUE INDEX ux_evidence_dedup "
+            "ON evidence(run_id, batch_id, dedup_key)"
         )
+
+
+def _migrate_evidence_batches(con: sqlite3.Connection) -> None:
+    """Add batch identity without rewriting legacy evidence snapshots."""
+    columns = {row[1] for row in con.execute("PRAGMA table_info(evidence)").fetchall()}
+    if "batch_id" not in columns:
+        with con:
+            con.execute("ALTER TABLE evidence ADD COLUMN batch_id TEXT")
+
+
+def create_evidence_batch(
+    con: sqlite3.Connection, batch_id: str, run_id: str, resolved_symbol: str
+) -> None:
+    con.execute(
+        "INSERT INTO evidence_batches(id, run_id, started_at, status, resolved_symbol) "
+        "VALUES (?, ?, ?, 'fetching', ?)",
+        (batch_id, run_id, utc_now(), resolved_symbol),
+    )
+
+
+def finish_evidence_batch(
+    con: sqlite3.Connection,
+    batch_id: str,
+    *,
+    status: str,
+    error_detail: str | None = None,
+) -> None:
+    if status not in {"completed", "partial", "failed"}:
+        raise ValueError("batch status must be completed, partial, or failed")
+    con.execute(
+        "UPDATE evidence_batches SET completed_at = ?, status = ?, error_detail = ? "
+        "WHERE id = ?",
+        (utc_now(), status, error_detail, batch_id),
+    )
+
+
+def current_evidence(
+    con: sqlite3.Connection, run_id: str, *, columns: str = "*"
+) -> list[sqlite3.Row]:
+    """Return the latest usable batch, or unbatched legacy evidence."""
+    batch = con.execute(
+        "SELECT id FROM evidence_batches WHERE run_id = ? "
+        "AND status IN ('completed', 'partial') "
+        "ORDER BY completed_at DESC, rowid DESC LIMIT 1",
+        (run_id,),
+    ).fetchone()
+    if batch:
+        return con.execute(
+            f"SELECT {columns} FROM evidence WHERE run_id = ? "
+            "AND batch_id = ? ORDER BY id",
+            (run_id, batch["id"]),
+        ).fetchall()
+    return con.execute(
+        f"SELECT {columns} FROM evidence WHERE run_id = ? "
+        "AND batch_id IS NULL ORDER BY id",
+        (run_id,),
+    ).fetchall()
 
 
 def evidence_reference(evidence_id: int) -> str:
@@ -196,10 +267,16 @@ def update_run_verdict(
     """Persist a committee rating, or an explicit abstention represented by None."""
     if verdict is not None and verdict not in RATINGS:
         raise ValueError("verdict must be buy, hold, reduce, or None")
-    con.execute(
+    if verdict is None and confidence is not None:
+        raise ValueError("confidence must be None when verdict is None")
+    if verdict is not None and confidence not in CONFIDENCE_LEVELS:
+        raise ValueError("confidence must be low, medium, or high with a verdict")
+    result = con.execute(
         "UPDATE runs SET verdict = ?, confidence = ? WHERE id = ?",
         (verdict, confidence, run_id),
     )
+    if result.rowcount != 1:
+        raise ValueError(f"Unknown run id: {run_id}")
 
 
 def delete_run(con: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
@@ -208,24 +285,28 @@ def delete_run(con: sqlite3.Connection, run_id: str) -> sqlite3.Row | None:
     if not run:
         return None
     con.execute("DELETE FROM evidence WHERE run_id = ?", (run_id,))
+    con.execute("DELETE FROM evidence_batches WHERE run_id = ?", (run_id,))
     con.execute("DELETE FROM contributions WHERE run_id = ?", (run_id,))
     con.execute("DELETE FROM runs WHERE id = ?", (run_id,))
     return run
 
 
-def insert_evidence_item(con: sqlite3.Connection, item: EvidenceItem) -> None:
+def insert_evidence_item(
+    con: sqlite3.Connection, item: EvidenceItem, *, batch_id: str | None = None
+) -> None:
     con.execute(
         """
         INSERT INTO evidence(
             run_id, source, title, url, published_at,
-            payload_json, fetched_at, dedup_key
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(run_id, dedup_key) DO UPDATE SET
+            payload_json, fetched_at, batch_id, dedup_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, batch_id, dedup_key) DO UPDATE SET
             title=excluded.title,
             url=excluded.url,
             published_at=excluded.published_at,
             payload_json=excluded.payload_json,
-            fetched_at=excluded.fetched_at
+            fetched_at=excluded.fetched_at,
+            batch_id=excluded.batch_id
         """,
         (
             item.run_id,
@@ -235,12 +316,15 @@ def insert_evidence_item(con: sqlite3.Connection, item: EvidenceItem) -> None:
             item.published_at,
             as_json(item.payload),
             utc_now(),
+            batch_id,
             item.dedup_key,
         ),
     )
 
 
-def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) -> None:
+def insert_evidence_items(
+    con: sqlite3.Connection, items: list[EvidenceItem], *, batch_id: str | None = None
+) -> None:
     """Bulk upsert evidence items for a run.
 
     The dedup_key on each item is used to resolve conflicts so repeated
@@ -261,6 +345,7 @@ def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) ->
             item.published_at,
             as_json(item.payload),
             utc_now(),
+            batch_id,
             item.dedup_key,
         )
         for item in unique_items.values()
@@ -269,14 +354,15 @@ def insert_evidence_items(con: sqlite3.Connection, items: list[EvidenceItem]) ->
         """
         INSERT INTO evidence(
             run_id, source, title, url, published_at,
-            payload_json, fetched_at, dedup_key
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(run_id, dedup_key) DO UPDATE SET
+            payload_json, fetched_at, batch_id, dedup_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, batch_id, dedup_key) DO UPDATE SET
             title=excluded.title,
             url=excluded.url,
             published_at=excluded.published_at,
             payload_json=excluded.payload_json,
-            fetched_at=excluded.fetched_at
+            fetched_at=excluded.fetched_at,
+            batch_id=excluded.batch_id
         """,
         rows,
     )

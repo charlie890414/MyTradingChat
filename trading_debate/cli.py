@@ -15,20 +15,24 @@ from .context import (
     CONTEXT_ROLES,
     ContextSummaryError,
     assemble_context,
+    parse_machine_summary,
     validate_news_content_summary,
 )
 from .db import (
     CONFIDENCE_LEVELS,
     RATINGS,
     connect,
+    create_evidence_batch,
+    current_evidence,
     delete_run,
     evidence_reference,
+    finish_evidence_batch,
     insert_evidence_items,
     normalize_contribution_actor,
     update_run_verdict,
 )
 from .models import EvidenceItem, YahooFetchResult
-from .render import cmd_render
+from .render import cmd_export, cmd_render
 from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo_symbol
 from .taiwan_names import fetch_taiwan_company_name
 from .utils import (
@@ -43,7 +47,6 @@ from .web import serve
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
-DEFAULT_REPORTS = ROOT.parent / "reports"
 DEFAULT_ENV = ROOT.parent / ".env"
 
 _MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
@@ -154,81 +157,125 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
+    news_limit = getattr(args, "news_limit", 10)
+    if not isinstance(news_limit, int):
+        news_limit = 10
+    if news_limit < 0:
+        raise SystemExit("--news-limit must be zero or greater")
     with connect(args.db) as con:
         run = con.execute(
-            "SELECT symbol FROM runs WHERE id = ?", (args.run_id,)
+            "SELECT symbol, status FROM runs WHERE id = ?", (args.run_id,)
         ).fetchone()
         if not run:
             raise SystemExit(f"Unknown run id: {args.run_id}")
-        symbol = resolve_taiwan_yahoo_symbol(run["symbol"])
-        if symbol != run["symbol"]:
-            con.execute(
-                "UPDATE runs SET symbol = ? WHERE id = ?",
-                (symbol, args.run_id),
+        if run["status"] == "completed":
+            raise SystemExit(
+                "Cannot fetch a completed run; create a new run for fresh research"
             )
+        if con.execute(
+            "SELECT 1 FROM contributions WHERE run_id = ? LIMIT 1", (args.run_id,)
+        ).fetchone():
+            raise SystemExit("Cannot fetch after analysis has started")
 
-        fetched: YahooFetchResult | None = None
-        yahoo_error: str | None = None
-        try:
-            fetched = fetch_yahoo(args.run_id, symbol, args.news_limit)
-            yahoo_items = list(fetched.items)
-        except Exception as exc:
-            yahoo_error = str(exc)
-            yahoo_items = [
-                _connector_status_item(
-                    args.run_id, "Yahoo Finance", "error", yahoo_error
-                )
-            ]
+    symbol = resolve_taiwan_yahoo_symbol(run["symbol"])
+    batch_id = uuid4().hex
+    with connect(args.db) as con:
+        create_evidence_batch(con, batch_id, args.run_id, symbol)
+        con.execute(
+            "UPDATE runs SET symbol = ?, status = 'fetching' WHERE id = ?",
+            (symbol, args.run_id),
+        )
 
+    fetched: YahooFetchResult | None = None
+    yahoo_error: str | None = None
+    try:
+        fetched = fetch_yahoo(args.run_id, symbol, news_limit)
+        yahoo_items = list(fetched.items)
+    except Exception as exc:
+        yahoo_error = str(exc)
+        yahoo_items = [
+            _connector_status_item(args.run_id, "Yahoo Finance", "error", yahoo_error)
+        ]
+
+    connector_items: dict[str, int] = {}
+    connector_errors: dict[str, str] = {}
+    connector_results: list[EvidenceItem] = []
+    try:
         chinese_name = fetch_taiwan_company_name(symbol)
-        company_name = (
-            company_search_name(symbol, fetched.fundamentals, chinese_name=chinese_name)
-            if fetched
-            else None
-        )
-
-        connector_items: dict[str, int] = {}
-        connector_errors: dict[str, str] = {}
-        connector_results: list[EvidenceItem] = []
-        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-            futures = {
-                executor.submit(
-                    _run_connector,
-                    name,
-                    fetcher,
-                    args.run_id,
-                    symbol,
-                    args.news_limit,
-                    company_name=company_name,
-                ): name
-                for name, fetcher in CONNECTORS.items()
-            }
-            for future in futures:
-                name = futures[future]
-                try:
-                    items, error = future.result()
-                    connector_results.extend(items)
-                    connector_items[name] = len(items)
-                    if error:
-                        connector_errors[name] = error
-                except Exception as exc:  # pragma: no cover - defensive
-                    connector_errors[name] = str(exc)
-
-        evidence_items = _enrich_news_with_article_text(
-            yahoo_items + connector_results, symbol, company_name
-        )
-        evidence_items = _filter_relevant_news(evidence_items, symbol, company_name)
-        insert_evidence_items(con, evidence_items)
-        if yahoo_error:
-            con.execute(
-                "UPDATE runs SET status = 'incomplete' WHERE id = ?",
-                (args.run_id,),
+    except Exception as exc:  # pragma: no cover - defensive provider boundary
+        chinese_name = None
+        connector_errors["Taiwan company name"] = str(exc)
+        yahoo_items.append(
+            _connector_status_item(
+                args.run_id, "Taiwan company name", "error", str(exc)
             )
+        )
+    company_name = (
+        company_search_name(symbol, fetched.fundamentals, chinese_name=chinese_name)
+        if fetched
+        else None
+    )
+
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(
+                _run_connector,
+                name,
+                fetcher,
+                args.run_id,
+                symbol,
+                news_limit,
+                company_name=company_name,
+            ): name
+            for name, fetcher in CONNECTORS.items()
+        }
+        for future in futures:
+            name = futures[future]
+            try:
+                items, error = future.result()
+                connector_results.extend(items)
+                connector_items[name] = len(items)
+                if error:
+                    connector_errors[name] = error
+            except Exception as exc:  # pragma: no cover - defensive
+                connector_errors[name] = str(exc)
+
+    evidence_items = _enrich_news_with_article_text(
+        yahoo_items + connector_results, symbol, company_name
+    )
+    evidence_items = _filter_relevant_news(evidence_items, symbol, company_name)
+    for item in evidence_items:
+        if item.title.startswith("Connector ") and isinstance(item.payload, dict):
+            state = item.payload.get("state")
+            if state not in {"available", "empty", "skipped"}:
+                connector_errors.setdefault(
+                    item.source, str(item.payload.get("detail", ""))
+                )
+    batch_status = "partial" if yahoo_error or connector_errors else "completed"
+    batch_error = (
+        "; ".join(
+            [detail for detail in [yahoo_error, *connector_errors.values()] if detail]
+        )
+        or None
+    )
+    with connect(args.db) as con:
+        insert_evidence_items(con, evidence_items, batch_id=batch_id)
+        finish_evidence_batch(
+            con,
+            batch_id,
+            status=batch_status,
+            error_detail=batch_error,
+        )
+        con.execute(
+            "UPDATE runs SET status = ? WHERE id = ?",
+            ("incomplete" if yahoo_error else "active", args.run_id),
+        )
 
     print(
         as_json(
             {
                 "run_id": args.run_id,
+                "batch_id": batch_id,
                 "fundamental_fields": (len(fetched.fundamentals) if fetched else None),
                 "yahoo_news_items": fetched.stored_news if fetched else 0,
                 "connector_items": connector_items,
@@ -244,14 +291,22 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 def cmd_context(args: argparse.Namespace) -> None:
     with connect(args.db) as con:
         run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
-        evidence = con.execute(
-            """
-            SELECT id, source, title, url, published_at, payload_json, fetched_at,
-                   dedup_key
-            FROM evidence WHERE run_id = ? ORDER BY id
-            """,
+        evidence = current_evidence(
+            con,
+            args.run_id,
+            columns=(
+                "id, source, title, url, published_at, payload_json, fetched_at, "
+                "dedup_key, batch_id"
+            ),
+        )
+        batch = con.execute(
+            "SELECT id, started_at, completed_at, status, resolved_symbol, "
+            "error_detail "
+            "FROM evidence_batches WHERE run_id = ? "
+            "AND status IN ('completed', 'partial') "
+            "ORDER BY completed_at DESC, rowid DESC LIMIT 1",
             (args.run_id,),
-        ).fetchall()
+        ).fetchone()
         contributions = con.execute(
             "SELECT * FROM contributions WHERE run_id = ? ORDER BY id",
             (args.run_id,),
@@ -262,6 +317,7 @@ def cmd_context(args: argparse.Namespace) -> None:
         context = assemble_context(run, evidence, contributions, args.role)
     except ContextSummaryError as exc:
         raise SystemExit(f"Cannot build {args.role} context: {exc}") from exc
+    context["evidence_batch"] = dict(batch) if batch else None
     print(as_json(context))
 
 
@@ -323,7 +379,7 @@ def _has_downstream_records(
             ).fetchone()
         )
     if stage == "verdict":
-        return bool(run["report_path"])
+        return False
     if actor == "bull":
         query = (
             "SELECT 1 FROM contributions WHERE run_id = ? AND stage = 'debate' "
@@ -440,6 +496,73 @@ def _validate_record(
     return run
 
 
+def _validate_machine_summary_at_write(
+    con: Any,
+    args: argparse.Namespace,
+    actor: str,
+    content: str,
+    verdict: str | None,
+    confidence: str | None,
+) -> None:
+    """Validate structured agent output before it can block downstream stages.
+
+    Legacy plain-text records remain readable, but any supplied machine summary
+    is validated immediately instead of failing later during context assembly.
+    """
+    if "Machine-readable summary" not in content:
+        return
+    try:
+        summary = parse_machine_summary(content)
+    except ContextSummaryError as exc:
+        raise SystemExit(f"Invalid machine-readable summary: {exc}") from exc
+    evidence_ids = summary.get("evidence_ids", [])
+    critical_ids = summary.get("critical_evidence_ids", [])
+    for key, values in (
+        ("evidence_ids", evidence_ids),
+        ("critical_evidence_ids", critical_ids),
+    ):
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) for item in values
+        ):
+            raise SystemExit(f"Invalid machine-readable summary: {key} must be a list")
+    valid_ids = {
+        evidence_reference(row["id"])
+        for row in con.execute(
+            "SELECT id FROM evidence WHERE run_id = ?", (args.run_id,)
+        ).fetchall()
+    }
+    unknown_ids = sorted(set(evidence_ids + critical_ids) - valid_ids)
+    if unknown_ids:
+        raise SystemExit(
+            "Invalid machine-readable summary: unknown evidence IDs: "
+            + ", ".join(unknown_ids)
+        )
+    if args.stage == "analysis":
+        if summary.get("actor") != actor:
+            raise SystemExit(
+                "Invalid machine-readable summary: actor does not match record"
+            )
+        if summary.get("confidence") not in CONFIDENCE_LEVELS:
+            raise SystemExit("Invalid machine-readable summary: invalid confidence")
+    elif args.stage == "debate":
+        if summary.get("actor") != actor or summary.get("round") != args.round:
+            raise SystemExit(
+                "Invalid machine-readable summary: actor or round does not match"
+            )
+        if summary.get("confidence") not in CONFIDENCE_LEVELS:
+            raise SystemExit("Invalid machine-readable summary: invalid confidence")
+    elif verdict is not None:
+        if (
+            summary.get("recommendation") != verdict
+            or summary.get("confidence") != confidence
+        ):
+            raise SystemExit("Invalid machine-readable summary: verdict does not match")
+        if not critical_ids:
+            raise SystemExit(
+                "Invalid machine-readable summary: critical_evidence_ids is required"
+            )
+
+
 def cmd_record(args: argparse.Namespace) -> None:
     content = (
         Path(args.content_file).read_text(encoding="utf-8")
@@ -461,6 +584,9 @@ def cmd_record(args: argparse.Namespace) -> None:
             actor = normalize_contribution_actor(args.stage, args.actor)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        _validate_machine_summary_at_write(
+            con, args, actor, content.strip(), verdict, confidence
+        )
         if args.stage == "analysis" and actor == "news_content":
             try:
                 summary = validate_news_content_summary(content.strip())
@@ -665,8 +791,12 @@ def parser() -> argparse.ArgumentParser:
 
     render = sub.add_parser("render")
     render.add_argument("--run-id", required=True)
-    render.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)
     render.set_defaults(func=cmd_render)
+
+    export = sub.add_parser("export", help="Export one report to an explicit path")
+    export.add_argument("--run-id", required=True)
+    export.add_argument("--output", type=Path, required=True)
+    export.set_defaults(func=cmd_export)
 
     search = sub.add_parser("search")
     search.add_argument("--query", required=True)
@@ -686,12 +816,9 @@ def parser() -> argparse.ArgumentParser:
     purge.set_defaults(func=cmd_purge)
 
     ui = sub.add_parser("serve", help="Start the local historical research UI")
-    ui.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)
     ui.add_argument("--host", default="127.0.0.1")
     ui.add_argument("--port", type=int, default=8765)
-    ui.set_defaults(
-        func=lambda args: serve(args.db, args.reports, args.host, args.port)
-    )
+    ui.set_defaults(func=lambda args: serve(args.db, args.host, args.port))
     return p
 
 

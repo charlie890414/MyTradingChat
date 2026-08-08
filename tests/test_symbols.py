@@ -65,11 +65,14 @@ def test_resolve_taiwan_yahoo_symbol_falls_back_to_two(mock_ticker):
 
 
 @patch("trading_debate.symbols.yfinance.Ticker")
-def test_resolve_taiwan_yahoo_symbol_retries_two_for_suffixed_tw(mock_ticker):
-    tw_ticker = make_mock_ticker(has_data=False)
-    two_ticker = make_mock_ticker(has_data=True)
-    mock_ticker.side_effect = [tw_ticker, two_ticker]
-    assert td.resolve_taiwan_yahoo_symbol("6841.TW") == "6841.TWO"
+def test_resolve_taiwan_yahoo_symbol_preserves_explicit_suffix(mock_ticker):
+    assert td.resolve_taiwan_yahoo_symbol("6841.TW") == "6841.TW"
+    mock_ticker.assert_not_called()
+
+
+def test_normalize_symbol_rejects_path_characters():
+    with pytest.raises(ValueError, match="unsupported characters"):
+        td.normalize_symbol("../outside")
 
 
 @patch("trading_debate.symbols.yfinance.Ticker")

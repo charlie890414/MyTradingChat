@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
 
 from .context import ContextSummaryError, parse_machine_summary
-from .db import connect, evidence_reference
+from .db import connect, current_evidence, evidence_reference
 from .utils import as_json
 
 
@@ -30,17 +32,17 @@ def render_evidence(rows: list[sqlite3.Row]) -> str:
     return "\n".join(chunks) or "No evidence captured."
 
 
-def cmd_render(args: argparse.Namespace) -> None:
-    with connect(args.db) as con:
-        run = con.execute("SELECT * FROM runs WHERE id = ?", (args.run_id,)).fetchone()
-        evidence = con.execute(
-            "SELECT * FROM evidence WHERE run_id = ? ORDER BY id", (args.run_id,)
-        ).fetchall()
-        parts = con.execute(
-            "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", (args.run_id,)
-        ).fetchall()
-    if not run:
-        raise SystemExit(f"Unknown run id: {args.run_id}")
+@dataclass(frozen=True)
+class RenderedReport:
+    markdown: str
+    status: str
+    limitations: tuple[str, ...]
+
+
+def render_report_markdown(
+    run: sqlite3.Row, evidence: list[sqlite3.Row], parts: list[sqlite3.Row]
+) -> RenderedReport:
+    """Build a deterministic report from persisted records without filesystem I/O."""
     groups: dict[str, list[sqlite3.Row]] = {}
     for part in parts:
         groups.setdefault(part["stage"], []).append(part)
@@ -77,18 +79,54 @@ def cmd_render(args: argparse.Namespace) -> None:
                 )
     body.extend(["", "## 資料限制", ""])
     body.extend([f"- {item}" for item in limitations] or ["- 無額外限制。"])
-    report_date = run["created_at"][:10]
-    # A run-specific directory keeps same-day research for one symbol immutable.
-    report_dir = args.reports / report_date / run["symbol"] / run["id"]
-    report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / "report.md"
-    path.write_text("\n".join(body).strip() + "\n", encoding="utf-8")
+    return RenderedReport(
+        markdown="\n".join(body).strip() + "\n",
+        status=status,
+        limitations=tuple(limitations),
+    )
+
+
+def _load_report(db: Path, run_id: str) -> RenderedReport:
+    with connect(db) as con:
+        run = con.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        evidence = current_evidence(con, run_id)
+        parts = con.execute(
+            "SELECT * FROM contributions WHERE run_id = ? ORDER BY id", (run_id,)
+        ).fetchall()
+    if not run:
+        raise SystemExit(f"Unknown run id: {run_id}")
+    return render_report_markdown(run, evidence, parts)
+
+
+def cmd_render(args: argparse.Namespace) -> None:
+    rendered = _load_report(args.db, args.run_id)
     with connect(args.db) as con:
         con.execute(
-            "UPDATE runs SET status = ?, report_path = ? WHERE id = ?",
-            (status, str(path), args.run_id),
+            "UPDATE runs SET status = ?, report_path = NULL WHERE id = ?",
+            (rendered.status, args.run_id),
         )
-    print(as_json({"run_id": args.run_id, "report_path": str(path), "status": status}))
+    print(
+        as_json(
+            {
+                "run_id": args.run_id,
+                "report_url": f"/runs/{args.run_id}/report",
+                "status": rendered.status,
+            }
+        )
+    )
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Write a report only when the caller explicitly provides an export path."""
+    rendered = _load_report(args.db, args.run_id)
+    output = args.output.expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered.markdown, encoding="utf-8")
+    print(
+        as_json(
+            {"run_id": args.run_id, "output": str(output), "status": rendered.status}
+        )
+    )
 
 
 def _render_status(

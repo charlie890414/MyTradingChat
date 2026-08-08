@@ -42,6 +42,20 @@ def test_evidence_reference_is_stable():
     assert td.evidence_reference(12) == "EVID-0012"
 
 
+def test_report_is_rendered_from_sqlite_without_report_path(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    _insert_run(db_path)
+    app = object.__new__(ResearchApp)
+    app.db_path = db_path
+    sent: dict[str, object] = {}
+    app._send = lambda status, body: sent.update(status=status, body=body)
+
+    app._report("run-1")
+
+    assert sent["status"].value == 200
+    assert "NVDA 多代理研究報告" in sent["body"]
+
+
 def test_web_hides_machine_readable_summary_from_contributions(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     _insert_run(db_path)
@@ -82,7 +96,7 @@ def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path
     assert 'class="local-time"' in page
 
 
-def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path):
+def test_ui_delete_does_not_touch_legacy_report_files(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"
     report = reports / "2026-07-30" / "NVDA" / "report.md"
@@ -95,7 +109,7 @@ def test_ui_delete_removes_legacy_report_without_shared_directory(tmp_path: Path
     app.reports_path = reports
 
     assert app._delete("run-1") is None
-    assert not report.exists()
+    assert report.exists()
     assert report.parent.exists()
     with td.connect(db_path) as con:
         assert con.execute("SELECT * FROM runs").fetchall() == []
@@ -111,7 +125,7 @@ def test_report_path_resolves_windows_path_inside_linux_container(tmp_path: Path
     assert resolved == reports / "2026-07-30" / "NVDA" / "report.md"
 
 
-def test_ui_delete_removes_run_specific_report_directory(tmp_path: Path):
+def test_ui_delete_leaves_run_specific_legacy_report_directory(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"
     report = reports / "2026-07-30" / "NVDA" / "run-1" / "report.md"
@@ -123,7 +137,7 @@ def test_ui_delete_removes_run_specific_report_directory(tmp_path: Path):
     app.reports_path = reports
 
     assert app._delete("run-1") is None
-    assert not report.parent.exists()
+    assert report.parent.exists()
 
 
 def test_layout_links_to_static_stylesheet():
@@ -143,6 +157,8 @@ def test_history_list_uses_responsive_register_layout():
     assert "@media (max-width: 760px)" in style
     assert "prefers-reduced-motion" in style
     assert ".rail-report .button { width: 100%; color: var(--paper-bright);" in style
+    assert "grid-template-columns: 2fr repeat(5, 1fr);" in style
+    assert ".status-fetching" in style
 
 
 def test_history_list_includes_mobile_card_view(tmp_path: Path):
@@ -305,7 +321,7 @@ def test_detail_explains_missing_or_invalid_news_content_summary(tmp_path: Path)
     )
 
 
-def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):
+def test_ui_delete_ignores_report_path_outside_configured_directory(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"
     external = tmp_path / "outside" / "report.md"
@@ -316,5 +332,5 @@ def test_ui_delete_keeps_report_outside_configured_directory(tmp_path: Path):
     app.db_path = db_path
     app.reports_path = reports
 
-    assert "未刪除" in (app._delete("run-1") or "")
+    assert app._delete("run-1") is None
     assert external.exists()

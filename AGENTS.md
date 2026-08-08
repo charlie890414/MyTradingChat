@@ -4,7 +4,7 @@
 
 `trading_debate/` contains the Python package and CLI: `cli.py` defines commands; `connectors/` collects evidence from Yahoo Finance, Google News RSS, Bing News RSS, Finnhub, FinMind, SEC EDGAR, and TWSE; `finance.py` is a compatibility facade that re-exports connectors and symbol utilities; `symbols.py` handles symbol normalization and Taiwan exchange resolution; `db.py` persists SQLite data; `models.py` holds shared data models; and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
 
-`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the agent workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; generated reports belong in `reports/`. Both are intentionally ignored by Git.
+`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the agent workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; reports are generated from SQLite and exported only on demand.
 
 ## Build, Test, and Development Commands
 
@@ -34,4 +34,4 @@ Recent history uses Conventional Commit-style subjects, such as `feat: add new n
 
 ## Security & Configuration
 
-Copy `.env.example` for local configuration and keep API keys only in `.env` or environment variables (`FINNHUB_API_KEY`, `FINMIND_TOKEN`). Google News RSS and Bing News RSS do not require credentials. Never commit credentials, generated databases, or research reports.
+Copy `.env.example` for local configuration and keep API keys only in `.env` or environment variables (`FINNHUB_API_KEY`, `FINMIND_TOKEN`). Google News RSS and Bing News RSS do not require credentials. Never commit credentials or generated databases.

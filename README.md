@@ -1,6 +1,6 @@
 # MyTradingChat
 
-Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and Markdown for human-readable reports.
+Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and generates Markdown reports from that persisted data.
 
 Open this repository with an agent workflow and ask, for example: `分析 NVDA的多空觀點，並提供買入/持有/減碼的投資建議與目標價格`.
 
@@ -10,7 +10,7 @@ Install the local tool once:
 python -m pip install -e .
 ```
 
-The agent workflow is defined at `.agents/skills/trading-debate/`. It instructs a controller agent to coordinate analyst, bull, bear, and investment-committee subagents. Generated SQLite data and reports stay local and are ignored by Git.
+The agent workflow is defined at `.agents/skills/trading-debate/`. It instructs a controller agent to coordinate analyst, bull, bear, and investment-committee subagents. Generated SQLite data stays local and is ignored by Git.
 
 Optional connectors are enabled only when their credentials exist in the environment:
 
@@ -70,6 +70,7 @@ trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull
 trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-file bear-round-1.md
 trading-debate record --run-id $run.run_id --stage verdict --actor committee --verdict hold --confidence medium --content-file committee.md
 trading-debate render --run-id $run.run_id
+trading-debate export --run-id $run.run_id --output ./NVDA-report.md
 trading-debate search --query NVDA
 ```
 
@@ -77,12 +78,13 @@ trading-debate search --query NVDA
 evidence. Analyst roles are `fundamentals`, `technical`, `news`, and `sentiment`;
 later stages use `debate` and `committee`. The technical view samples the most
 recent 30 daily, 26 weekly, and 12 monthly OHLCV bars while preserving the full
-history in SQLite.
+history in SQLite. Each fetch is stored as an immutable evidence batch; contexts
+and reports use the latest completed or partial batch, never a mixture of dates.
 
 Each role and debate turn has one logical record. Re-sending identical content
 returns a `duplicate` status without adding a row. To change an existing record,
-pass `--replace`; replacement is refused once a downstream debate, verdict, or
-rendered report depends on it. A committee that cannot rate the evidence must
+pass `--replace`; replacement is refused once a downstream debate or verdict
+depends on it. A committee that cannot rate the evidence must
 explicitly use `--abstain` instead of omitting verdict arguments.
 
 ## Local historical research UI
@@ -105,15 +107,15 @@ Build and start the web UI in a container:
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8765`. The Compose service mounts the local `data/` and
-`reports/` directories, so existing research remains available and new runtime
-data survives container recreation. Connector credentials are not passed to the
+Open `http://127.0.0.1:8765`. Compose publishes only to loopback by default. The service mounts the local `data/`
+directory, so research data survives container recreation. Reports are rendered
+from SQLite on demand; `export` writes Markdown only to an explicit path.
+Connector credentials are not passed to the
 read-only web service. To use another host port, set `WEB_PORT` before starting
 the service, for example `$env:WEB_PORT = "8080"`.
 
-Stop the service with `docker compose down`. This does not remove the mounted
-research data or reports.
+Stop the service with `docker compose down`. This does not remove mounted
+research data.
 
-To delete a run, open its detail page and enter the exact research ID to confirm.
-This permanently removes its SQLite run data, evidence, contributions, and its
-report directory when available.
+To delete a run, open its detail page and enter the displayed research ID to
+confirm. This permanently removes its SQLite run data, evidence, and contributions.

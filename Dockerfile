@@ -10,8 +10,8 @@ COPY trading_debate ./trading_debate
 
 RUN python -m pip install --no-cache-dir .
 
-RUN mkdir -p /app/data /app/reports
+RUN mkdir -p /app/data
 
 EXPOSE 8765
 
-CMD ["trading-debate", "--db", "/app/data/research.sqlite3", "serve", "--reports", "/app/reports", "--host", "0.0.0.0", "--port", "8765"]
+CMD ["trading-debate", "--db", "/app/data/research.sqlite3", "serve", "--host", "0.0.0.0", "--port", "8765"]
