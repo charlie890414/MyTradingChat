@@ -68,7 +68,7 @@ _LEGAL_NAME_WORDS = frozenset(
     }
 )
 _TRACKING_PARAMETERS = frozenset({"ref", "source", "src", "oc"})
-_ARTICLE_MAX_BYTES = 1_000_000
+_ARTICLE_MAX_BYTES = 8_000_000
 _ARTICLE_MAX_CHARS = 12_000
 _IGNORED_HTML_TAGS = frozenset(
     {
@@ -257,6 +257,38 @@ class _ArticleTextParser(HTMLParser):
             self.parts.append(data)
 
 
+def _extract_article_text(html: str, url: str) -> tuple[str | None, str]:
+    """Extract article text from already-downloaded HTML with a safe fallback."""
+    try:
+        import trafilatura
+
+        extracted = trafilatura.extract(
+            html,
+            url=url,
+            output_format="txt",
+            include_comments=False,
+            include_tables=True,
+            include_links=False,
+            include_images=False,
+            favor_precision=True,
+            deduplicate=True,
+            max_tree_size=_ARTICLE_MAX_BYTES,
+        )
+    except (ImportError, TypeError, ValueError):
+        extracted = None
+    if extracted:
+        return re.sub(r"\s+", " ", extracted).strip(), "trafilatura"
+
+    parser = _ArticleTextParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (UnicodeError, ValueError):
+        return None, "html_parser_fallback"
+    text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+    return (text or None), "html_parser_fallback"
+
+
 def fetch_article_text_result(
     url: str,
     *,
@@ -302,20 +334,11 @@ def fetch_article_text_result(
             "reason": "transport_or_decode_error",
             "detail": str(exc)[:200],
         }
-    parser = _ArticleTextParser()
-    try:
-        parser.feed(content.decode(charset, errors="replace"))
-        parser.close()
-    except (UnicodeError, ValueError) as exc:
-        return None, {
-            "state": "failed",
-            "reason": "html_parse_error",
-            "detail": str(exc)[:200],
-        }
-    text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+    html = content.decode(charset, errors="replace")
+    text, extractor = _extract_article_text(html, url)
     if not text:
         return None, {"state": "failed", "reason": "empty_article_body"}
-    return text[:max_chars], {"state": "available"}
+    return text[:max_chars], {"state": "available", "extractor": extractor}
 
 
 def fetch_article_text(

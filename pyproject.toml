@@ -7,7 +7,7 @@ name = "my-trading-chat"
 version = "0.1.0"
 description = "Agent-orchestrated, evidence-grounded equity research debates"
 requires-python = ">=3.11"
-dependencies = ["feedparser>=6", "python-dotenv>=1.0", "yfinance>=0.2.54", "Jinja2>=3.1", "pypdf>=5", "requests>=2.28"]
+dependencies = ["feedparser>=6", "python-dotenv>=1.0", "yfinance>=0.2.54", "Jinja2>=3.1", "pypdf>=5", "requests>=2.28", "pydantic>=2,<3", "trafilatura>=2,<3"]
 
 [dependency-groups]
 dev = ["ruff", "pytest", "pre-commit"]

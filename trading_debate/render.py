@@ -11,11 +11,12 @@ from pathlib import Path
 from .context import (
     ContextSummaryError,
     _validate_contribution_summary,
-    _validate_summary_evidence_ids,
+    _validate_model,
     parse_machine_summary,
     validate_news_content_summary,
 )
 from .db import connect, current_evidence, evidence_reference
+from .summaries import VerdictSummary
 from .utils import as_json
 
 
@@ -163,7 +164,6 @@ def _render_status(
         try:
             summary = parse_machine_summary(part["summary_json"])
             _validate_contribution_summary(part, summary)
-            _validate_summary_evidence_ids(summary)
             if part["stage"] == "analysis" and part["actor"] == "news_content":
                 validate_news_content_summary(part["summary_json"])
         except ContextSummaryError:
@@ -199,7 +199,7 @@ def _valid_verdict_summary(
 ) -> bool:
     """Validate the committee's structured conclusion against persisted data."""
     try:
-        summary = parse_machine_summary(summary_json)
+        summary = _validate_model(VerdictSummary, parse_machine_summary(summary_json))
     except ContextSummaryError:
         return False
     if summary.get("recommendation") != run["verdict"]:

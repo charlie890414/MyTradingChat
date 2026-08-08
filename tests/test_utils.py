@@ -85,9 +85,9 @@ def test_fetch_article_text_cleans_html_and_rejects_private_hosts():
 
 @pytest.mark.parametrize(
     ("content_length", "expected_state"),
-    [(300_000, "available"), (1_000_001, "failed")],
+    [(8_000_000, "available"), (8_000_001, "failed")],
 )
-def test_fetch_article_text_allows_responses_up_to_one_megabyte(
+def test_fetch_article_text_allows_responses_up_to_eight_megabytes(
     content_length, expected_state
 ):
     class Response:
@@ -124,6 +124,7 @@ def test_fetch_article_text_allows_responses_up_to_one_megabyte(
     assert status["state"] == expected_state
     if expected_state == "available":
         assert text == "Relevant article body."
+        assert status["extractor"] == "html_parser_fallback"
     else:
         assert text is None
         assert status["reason"] == "content_too_large"

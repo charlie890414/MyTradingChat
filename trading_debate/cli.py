@@ -17,7 +17,6 @@ from .context import (
     CONTEXT_ROLES,
     ContextSummaryError,
     _validate_contribution_summary,
-    _validate_summary_evidence_ids,
     assemble_context,
     parse_machine_summary,
     validate_news_content_summary,
@@ -582,7 +581,6 @@ def _validate_machine_summary_at_write(
                 },
                 summary,
             )
-            _validate_summary_evidence_ids(summary)
         except ContextSummaryError as exc:
             raise SystemExit(f"Invalid machine-readable summary: {exc}") from exc
     if args.stage == "analysis":

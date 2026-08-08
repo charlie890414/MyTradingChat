@@ -109,6 +109,32 @@ def test_news_content_summary_validates_article_schema():
     assert summary["article_summaries"][0]["evidence_id"] == "EVID-0001"
 
 
+def test_news_content_summary_preserves_unknown_fields():
+    summary = validate_news_content_summary(
+        _news_summary_json(custom_metadata={"source": "agent"})
+    )
+
+    assert summary["custom_metadata"] == {"source": "agent"}
+
+
+def test_news_content_summary_rejects_string_boolean():
+    content = _news_summary_json(
+        article_summaries=[
+            {
+                "evidence_id": "EVID-0001",
+                "body_available": "true",
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "event",
+                "materiality": "medium",
+            }
+        ]
+    )
+
+    with pytest.raises(ContextSummaryError, match="body_available"):
+        validate_news_content_summary(content)
+
+
 def test_news_content_summary_rejects_prose_as_json_key():
     content = _news_summary_json().replace(
         '"materiality": "medium"',

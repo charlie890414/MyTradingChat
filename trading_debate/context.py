@@ -10,7 +10,10 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
+from pydantic import ValidationError
+
 from .db import evidence_reference, normalize_contribution_actor
+from .summaries import ContributionSummary, NewsContentSummary
 
 CONTEXT_ROLES = (
     "fundamentals",
@@ -104,152 +107,24 @@ def parse_machine_summary(summary_json: str | None) -> dict[str, Any]:
     return summary
 
 
+def _validate_model(model_type: type[Any], summary: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return model_type.model_validate(summary, strict=True).model_dump(
+            exclude_unset=True
+        )
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        location = ".".join(str(part) for part in error["loc"])
+        message = str(error["msg"])
+        raise ContextSummaryError(
+            f"{location}: {message}" if location else message
+        ) from exc
+
+
 def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
     """Validate the structured handoff produced by the news summarizer."""
     summary = parse_machine_summary(summary_json)
-    if summary.get("actor") != "news_content":
-        raise ContextSummaryError("news content summary actor must be news_content")
-    if summary.get("stance") != "neutral":
-        raise ContextSummaryError("news content summary stance must be neutral")
-    if summary.get("confidence") not in {"low", "medium", "high"}:
-        raise ContextSummaryError(
-            "news content summary confidence is missing or invalid"
-        )
-    if not isinstance(summary.get("evidence_gaps"), list):
-        raise ContextSummaryError("news content summary evidence_gaps must be a list")
-    _validate_summary_evidence_ids(summary)
-    _validate_news_merge_metadata(summary)
-
-    article_summaries = summary.get("article_summaries")
-    if not isinstance(article_summaries, list) or not article_summaries:
-        raise ContextSummaryError(
-            "news content summary article_summaries must be a non-empty list"
-        )
-    evidence_ids = set(summary["evidence_ids"])
-    seen_evidence_ids: set[str] = set()
-    for index, item in enumerate(article_summaries):
-        prefix = f"article_summaries[{index}]"
-        if not isinstance(item, dict):
-            raise ContextSummaryError(f"{prefix} must be a JSON object")
-        evidence_id = item.get("evidence_id")
-        if not isinstance(evidence_id, str) or not _EVIDENCE_ID_RE.fullmatch(
-            evidence_id
-        ):
-            raise ContextSummaryError(f"{prefix}.evidence_id must be an evidence ID")
-        if evidence_id not in evidence_ids:
-            raise ContextSummaryError(
-                f"{prefix}.evidence_id must also appear in evidence_ids"
-            )
-        if evidence_id in seen_evidence_ids:
-            raise ContextSummaryError(
-                f"{prefix}.evidence_id is duplicated; merge batch records by ID first"
-            )
-        seen_evidence_ids.add(evidence_id)
-        if not isinstance(item.get("body_available"), bool):
-            raise ContextSummaryError(f"{prefix}.body_available must be a boolean")
-        if not isinstance(item.get("event_date"), str):
-            raise ContextSummaryError(f"{prefix}.event_date must be a string")
-        if not isinstance(item.get("summary"), str) or not item["summary"].strip():
-            raise ContextSummaryError(f"{prefix}.summary must be a non-empty string")
-        if item.get("materiality") not in {"high", "medium", "low"}:
-            raise ContextSummaryError(
-                f"{prefix}.materiality must be high, medium, or low"
-            )
-        if (
-            not isinstance(item.get("source_quality"), str)
-            or not item["source_quality"].strip()
-        ):
-            raise ContextSummaryError(
-                f"{prefix}.source_quality must be a non-empty string"
-            )
-        for key in ("event_id", "source_language"):
-            if key in item and (
-                not isinstance(item[key], str) or not item[key].strip()
-            ):
-                raise ContextSummaryError(f"{prefix}.{key} must be a non-empty string")
-        if "is_primary" in item and not isinstance(item["is_primary"], bool):
-            raise ContextSummaryError(f"{prefix}.is_primary must be a boolean")
-        related_ids = item.get("related_evidence_ids", [])
-        if not isinstance(related_ids, list) or not all(
-            isinstance(related, str) and _EVIDENCE_ID_RE.fullmatch(related)
-            for related in related_ids
-        ):
-            raise ContextSummaryError(
-                f"{prefix}.related_evidence_ids must be a list of evidence IDs"
-            )
-        if any(related not in evidence_ids for related in related_ids):
-            raise ContextSummaryError(
-                f"{prefix}.related_evidence_ids must appear in evidence_ids"
-            )
-        if evidence_id in related_ids:
-            raise ContextSummaryError(
-                f"{prefix}.related_evidence_ids must not contain its own evidence_id"
-            )
-    _validate_news_event_groups(summary, article_summaries)
-    return summary
-
-
-def _validate_news_merge_metadata(summary: dict[str, Any]) -> None:
-    metadata = summary.get("merge_metadata")
-    if metadata is None:
-        return
-    if not isinstance(metadata, dict):
-        raise ContextSummaryError("merge_metadata must be an object")
-    batch_count = metadata.get("batch_count")
-    if not isinstance(batch_count, int) or batch_count < 1:
-        raise ContextSummaryError(
-            "merge_metadata.batch_count must be a positive integer"
-        )
-    batch_numbers = metadata.get("batch_numbers")
-    if (
-        not isinstance(batch_numbers, list)
-        or not batch_numbers
-        or len(set(batch_numbers)) != len(batch_numbers)
-        or any(not isinstance(number, int) or number < 1 for number in batch_numbers)
-    ):
-        raise ContextSummaryError(
-            "merge_metadata.batch_numbers must be unique positive integers"
-        )
-    if max(batch_numbers) > batch_count:
-        raise ContextSummaryError(
-            "merge_metadata.batch_numbers cannot exceed batch_count"
-        )
-    if "unique_event_count" in metadata and (
-        not isinstance(metadata["unique_event_count"], int)
-        or metadata["unique_event_count"] < 1
-    ):
-        raise ContextSummaryError(
-            "merge_metadata.unique_event_count must be a positive integer"
-        )
-
-
-def _validate_news_event_groups(
-    summary: dict[str, Any], article_summaries: list[dict[str, Any]]
-) -> None:
-    if summary.get("merge_metadata") is None:
-        return
-    events: dict[str, int] = {}
-    for item in article_summaries:
-        event_id = item.get("event_id")
-        if not isinstance(event_id, str):
-            raise ContextSummaryError(
-                "merged article summaries must all include event_id"
-            )
-        if "is_primary" not in item:
-            raise ContextSummaryError(
-                "merged article summaries must mark is_primary for every event"
-            )
-        if item["is_primary"]:
-            events[event_id] = events.get(event_id, 0) + 1
-        else:
-            events.setdefault(event_id, 0)
-    if any(count != 1 for count in events.values()):
-        raise ContextSummaryError("each merged event must have exactly one primary")
-    unique_event_count = summary["merge_metadata"].get("unique_event_count")
-    if unique_event_count is not None and unique_event_count != len(events):
-        raise ContextSummaryError(
-            "merge_metadata.unique_event_count does not match event_id groups"
-        )
+    return _validate_model(NewsContentSummary, summary)
 
 
 def assemble_context(
@@ -817,7 +692,6 @@ def _required_summaries(
             except ContextSummaryError as exc:
                 label = f"{row['stage']}/{row['actor']}"
                 raise ContextSummaryError(f"{label}: {exc}") from exc
-        _validate_summary_evidence_ids(summary)
         summaries.append(
             {
                 "stage": row["stage"],
@@ -857,16 +731,9 @@ def _required_summaries(
     return summaries
 
 
-def _validate_summary_evidence_ids(summary: dict[str, Any]) -> None:
-    for key in ("evidence_ids", "critical_evidence_ids"):
-        values = summary.get(key, [])
-        if not isinstance(values, list) or not all(
-            isinstance(item, str) and _EVIDENCE_ID_RE.fullmatch(item) for item in values
-        ):
-            raise ContextSummaryError(f"{key} must be a list of evidence IDs")
-
-
 def _validate_contribution_summary(row: sqlite3.Row, summary: dict[str, Any]) -> None:
+    validated = _validate_model(ContributionSummary, summary)
+    summary = validated
     try:
         summary_actor = normalize_contribution_actor(
             row["stage"], str(summary.get("actor", ""))
