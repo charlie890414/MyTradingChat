@@ -105,9 +105,9 @@ For each requested round:
 ### Persist debate turns
 
 ```shell
-uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --actor bull --round <N> --content-stdin
+uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --actor bull --round <N> --content-stdin --summary-json '<bull-summary-json>'
 
-uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --actor bear --round <N> --content-stdin
+uv run python -m trading_debate.cli record --run-id <run-id> --stage debate --actor bear --round <N> --content-stdin --summary-json '<bear-summary-json>'
 ```
 
 Recommended idempotency key:
