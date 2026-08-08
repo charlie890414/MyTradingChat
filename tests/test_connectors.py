@@ -220,9 +220,9 @@ def test_fetch_bing_news_returns_items(mock_feedparser):
 
 
 @patch("trading_debate.connectors.bing_news.feedparser")
-def test_fetch_bing_news_skips_items_older_than_30_days(mock_feedparser):
+def test_fetch_bing_news_skips_items_older_than_7_days(mock_feedparser):
     recent = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    old = (datetime.now(UTC) - timedelta(days=31)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    old = (datetime.now(UTC) - timedelta(days=8)).strftime("%a, %d %b %Y %H:%M:%S GMT")
     mock_feedparser.parse.return_value = type(
         "Feed",
         (),
@@ -257,7 +257,7 @@ def test_fetch_google_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
                 {
                     "title": "Unimicron expands capacity",
                     "link": "https://example.com/1",
-                    "published": "Mon, 28 Jul 2026 10:00:00 GMT",
+                    "published": datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT"),
                     "summary": "",
                     "source": {"title": "Reuters", "href": "https://reuters.com"},
                 }
@@ -314,7 +314,7 @@ def test_fetch_bing_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
                 {
                     "title": "Unimicron raises guidance",
                     "link": "https://example.com/1",
-                    "published": "Mon, 28 Jul 2026 14:00:00 GMT",
+                    "published": datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT"),
                     "summary": "",
                 }
             ]

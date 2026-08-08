@@ -348,8 +348,11 @@ def test_article_text_can_establish_news_relevance():
         published_at="2026-08-08T10:00:00+00:00",
     )
     with patch(
-        "trading_debate.cli.fetch_article_text",
-        return_value="Broadcom expects custom-chip demand to grow.",
+        "trading_debate.cli.fetch_article_text_result",
+        return_value=(
+            "Broadcom expects custom-chip demand to grow.",
+            {"state": "available"},
+        ),
     ):
         enriched = _enrich_news_with_article_text([item], "AVGO", "Broadcom Inc.")
 
@@ -371,18 +374,18 @@ def test_article_text_attempts_every_url_and_records_failures():
         for index in range(13)
     ]
 
-    def fetch(url: str) -> str:
+    def fetch(url: str) -> tuple[str | None, dict[str, str]]:
         if url.endswith("/3"):
-            raise TimeoutError("timed out")
-        return f"body for {url}"
+            return None, {"state": "failed", "reason": "timeout"}
+        return f"body for {url}", {"state": "available"}
 
-    with patch("trading_debate.cli.fetch_article_text", side_effect=fetch) as mocked:
+    with patch("trading_debate.cli.fetch_article_text_result", side_effect=fetch) as mocked:
         _enrich_news_with_article_text(items, "AAPL", "Apple Inc.")
 
     assert mocked.call_count == 13
     assert items[3].payload["article_text_status"] == {
         "state": "failed",
-        "detail": "timed out",
+        "reason": "timeout",
     }
     assert items[12].payload["article_text_status"]["state"] == "available"
 

@@ -40,7 +40,7 @@ from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo
 from .taiwan_names import fetch_taiwan_company_name
 from .utils import (
     as_json,
-    fetch_article_text,
+    fetch_article_text_result,
     is_news_source,
     is_relevant_news,
     load_dotenv,
@@ -116,21 +116,15 @@ def _enrich_news_with_article_text(
     unique_candidates = candidates
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
         futures = {
-            executor.submit(fetch_article_text, item.url): item
+            executor.submit(fetch_article_text_result, item.url): item
             for item in unique_candidates
         }
         for future, item in futures.items():
             try:
-                article_text = future.result()
+                article_text, status = future.result()
             except Exception as exc:  # pragma: no cover - defensive provider boundary
                 article_text = None
                 status = {"state": "failed", "detail": str(exc)}
-            else:
-                status = (
-                    {"state": "available"}
-                    if article_text
-                    else {"state": "failed", "detail": "empty article body"}
-                )
             payload = item.payload if isinstance(item.payload, dict) else {}
             item.payload = {**payload, "article_text_status": status}
             if article_text:

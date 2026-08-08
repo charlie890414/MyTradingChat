@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -95,6 +95,12 @@ def test_as_json_normalizes_non_finite_numbers():
     assert json.loads(td.as_json({"value": float("nan")})) == {"value": None}
 
 
+@pytest.mark.parametrize("value", [date(2026, 8, 9), datetime(2026, 8, 9, 12, 0)])
+def test_as_json_serializes_date_and_datetime(value):
+    parsed = json.loads(td.as_json({"when": value}))
+    assert parsed == {"when": "2026-08-09T12:00:00" if isinstance(value, datetime) else "2026-08-09"}
+
+
 def test_request_errors_redact_sensitive_query_values():
     with patch("trading_debate.utils.urlopen", side_effect=ConnectionResetError):
         with pytest.raises(td.RequestError) as exc_info:
@@ -114,11 +120,11 @@ def test_date_range_days():
     assert (end_date.date() - start_date.date()).days == 365
 
 
-def test_is_recent_news_requires_a_timestamp_within_30_days():
+def test_is_recent_news_requires_a_timestamp_within_7_days():
     now = datetime(2026, 8, 6, tzinfo=UTC)
 
-    assert td.is_recent_news("2026-07-07T00:00:00+00:00", now=now)
-    assert not td.is_recent_news("2026-07-06T23:59:59+00:00", now=now)
+    assert td.is_recent_news("2026-07-30T00:00:00+00:00", now=now)
+    assert not td.is_recent_news("2026-07-29T23:59:59+00:00", now=now)
     assert not td.is_recent_news(None, now=now)
 
 

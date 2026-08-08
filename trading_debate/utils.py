@@ -9,7 +9,7 @@ import re
 import socket
 import ssl
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -41,7 +41,7 @@ class RequestError(RuntimeError):
 
 
 _USER_AGENT = "MyTradingChat/0.1"
-NEWS_MAX_AGE_DAYS = 30
+NEWS_MAX_AGE_DAYS = 7
 _NEWS_SOURCES = frozenset(
     {
         "Yahoo Finance News",
@@ -91,7 +91,7 @@ def is_recent_news(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Return whether a news item has a publication time within 30 days."""
+    """Return whether a news item has a publication time within 7 days."""
     if published_at is None or published_at == "":
         return False
     try:
@@ -246,6 +246,67 @@ class _ArticleTextParser(HTMLParser):
             self.parts.append(data)
 
 
+def fetch_article_text_result(
+    url: str,
+    *,
+    timeout: float = 5.0,
+    max_bytes: int = _ARTICLE_MAX_BYTES,
+    max_chars: int = _ARTICLE_MAX_CHARS,
+    resolver: Any = socket.getaddrinfo,
+    opener: Any | None = None,
+) -> tuple[str | None, dict[str, str]]:
+    """Fetch article text and return a machine-readable outcome."""
+    if not _is_public_article_url(url, resolver):
+        return None, {"state": "failed", "reason": "unsafe_url"}
+    request = Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "text/html"})
+    article_opener = opener or build_opener(_SafeArticleRedirectHandler(resolver))
+    try:
+        with article_opener.open(request, timeout=timeout) as response:
+            content_type = str(response.headers.get("Content-Type", "")).casefold()
+            if "text/html" not in content_type:
+                return None, {
+                    "state": "failed",
+                    "reason": "non_html_response",
+                    "content_type": content_type or "missing",
+                }
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > max_bytes:
+                return None, {
+                    "state": "failed",
+                    "reason": "content_too_large",
+                }
+            content = response.read(max_bytes + 1)
+            if len(content) > max_bytes:
+                return None, {"state": "failed", "reason": "content_too_large"}
+            charset = response.headers.get_content_charset() or "utf-8"
+    except HTTPError as exc:
+        return None, {
+            "state": "failed",
+            "reason": "http_error",
+            "status_code": str(exc.code),
+        }
+    except (OSError, UnicodeError, ValueError) as exc:
+        return None, {
+            "state": "failed",
+            "reason": "transport_or_decode_error",
+            "detail": str(exc)[:200],
+        }
+    parser = _ArticleTextParser()
+    try:
+        parser.feed(content.decode(charset, errors="replace"))
+        parser.close()
+    except (UnicodeError, ValueError) as exc:
+        return None, {
+            "state": "failed",
+            "reason": "html_parse_error",
+            "detail": str(exc)[:200],
+        }
+    text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+    if not text:
+        return None, {"state": "failed", "reason": "empty_article_body"}
+    return text[:max_chars], {"state": "available"}
+
+
 def fetch_article_text(
     url: str,
     *,
@@ -255,37 +316,16 @@ def fetch_article_text(
     resolver: Any = socket.getaddrinfo,
     opener: Any | None = None,
 ) -> str | None:
-    """Fetch bounded, script-free article text from a public HTTP(S) URL.
-
-    This is best-effort enrichment only. Unsafe URLs, redirects, non-HTML
-    responses, and transport or parsing failures return ``None``.
-    """
-    if not _is_public_article_url(url, resolver):
-        return None
-    request = Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "text/html"})
-    article_opener = opener or build_opener(_SafeArticleRedirectHandler(resolver))
-    try:
-        with article_opener.open(request, timeout=timeout) as response:
-            content_type = str(response.headers.get("Content-Type", "")).casefold()
-            if "text/html" not in content_type:
-                return None
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > max_bytes:
-                return None
-            content = response.read(max_bytes + 1)
-            if len(content) > max_bytes:
-                return None
-            charset = response.headers.get_content_charset() or "utf-8"
-    except (HTTPError, OSError, UnicodeError, ValueError):
-        return None
-    parser = _ArticleTextParser()
-    try:
-        parser.feed(content.decode(charset, errors="replace"))
-        parser.close()
-    except (UnicodeError, ValueError):
-        return None
-    text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
-    return text[:max_chars] or None
+    """Fetch bounded, script-free article text from a public HTTP(S) URL."""
+    text, _ = fetch_article_text_result(
+        url,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        max_chars=max_chars,
+        resolver=resolver,
+        opener=opener,
+    )
+    return text
 
 
 def as_json(value: Any) -> str:
@@ -317,6 +357,8 @@ def _json_safe(value: Any) -> Any:
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if hasattr(value, "item"):
         return _json_safe(value.item())
     return value

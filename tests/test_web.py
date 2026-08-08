@@ -321,8 +321,10 @@ def test_detail_explains_missing_or_invalid_news_content_summary(tmp_path: Path)
         parts = con.execute("SELECT * FROM contributions ORDER BY id").fetchall()
 
     invalid = _detail_evidence(evidence, parts)[1]
-    assert invalid["news_summary_status"].startswith("新聞內文總結格式無效：")
-    assert "missing machine summary JSON" in invalid["news_summary_status"]
+    assert invalid["news_summary_status"] == (
+        "此新聞內文總結缺少獨立的 Machine-readable summary JSON；"
+        "這通常表示該記錄建立於摘要欄位啟用前"
+    )
 
 
 def test_ui_delete_ignores_report_path_outside_configured_directory(tmp_path: Path):

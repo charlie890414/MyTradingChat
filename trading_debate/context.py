@@ -498,6 +498,11 @@ def news_content_summary_status(
     )
     if not contribution:
         return {}, "尚未產生新聞內文總結"
+    if not contribution["summary_json"]:
+        return {}, (
+            "此新聞內文總結缺少獨立的 Machine-readable summary JSON；"
+            "這通常表示該記錄建立於摘要欄位啟用前"
+        )
     try:
         summary = validate_news_content_summary(contribution["summary_json"])
     except ContextSummaryError as exc:
