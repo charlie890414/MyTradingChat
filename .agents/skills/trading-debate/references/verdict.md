@@ -97,7 +97,7 @@ These are research classifications only. They are not instructions to buy, hold,
 ## 研究聲明
 本裁決僅為研究輸出，不構成投資建議、交易建議、個人化財務建議或下單指示。
 
-## Machine-readable summary
+The separate `--summary-json` payload must contain:
 ```json
 {
   "recommendation": "buy|hold|reduce",
@@ -125,7 +125,7 @@ The Committee must explicitly explain:
 ## Persist verdict
 
 ```shell
-uv run python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage verdict --actor committee --verdict <buy|hold|reduce> --confidence <low|medium|high> --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/investment-committee.md --summary-json '<committee-summary-json>'
 ```
 
 Use `--abstain` when evidence is insufficient for a rating; it cannot be combined with `--verdict` or `--confidence`. A rating requires both `--verdict` and `--confidence`.

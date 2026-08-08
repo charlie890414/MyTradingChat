@@ -251,7 +251,7 @@ def test_contribution_migration_normalizes_and_deduplicates(tmp_path: Path):
         ("analysis", "news", "news report"),
         ("verdict", "committee", "same verdict"),
     ]
-    assert version == 2
+    assert version == 3
 
 
 def test_contribution_migration_rejects_conflicting_duplicates(tmp_path: Path):

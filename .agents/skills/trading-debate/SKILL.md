@@ -221,7 +221,7 @@ The verdict stage requires either `--verdict <buy|hold|reduce>` with `--confiden
 
 Confirm every `record` echoed the expected run-id. If any echoed run-id differs, stop and investigate instead of rendering a run that is missing required parts.
 
-Each persisted role has one logical record: analysis uses `run_id + stage + actor`, debate additionally includes `round`, and verdict uses the Committee role. Re-sending identical content returns `record_status: duplicate`. A changed contribution requires `--replace` and is rejected if downstream turns, a verdict, or a rendered report depend on it.
+Each persisted role has one logical record: analysis uses `run_id + stage + actor`, debate additionally includes `round`, and verdict uses the Committee role. Store human-readable Markdown with `--content` or `--content-file`, and pass the JSON machine summary separately with `--summary-json`; SQLite stores it only in `contributions.summary_json`. Re-sending identical content and summary returns `record_status: duplicate`. A changed contribution requires `--replace` and is rejected if downstream turns, a verdict, or a rendered report depend on it.
 
 ### 7. Return result
 

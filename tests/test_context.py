@@ -78,11 +78,7 @@ def _summary(**overrides: object) -> str:
         "unresolved_disagreements": [],
         **overrides,
     }
-    return (
-        "# Report\n\n## Machine-readable summary\n```json\n"
-        + json.dumps(payload)
-        + "\n```"
-    )
+    return json.dumps(payload)
 
 
 def _news_summary_json(**overrides: object) -> str:
@@ -104,7 +100,7 @@ def _news_summary_json(**overrides: object) -> str:
         ],
         **overrides,
     }
-    return "## Machine-readable summary\n```json\n" + json.dumps(payload) + "\n```"
+    return json.dumps(payload)
 
 
 def test_news_content_summary_validates_article_schema():
@@ -131,10 +127,19 @@ def _insert_contribution(
     round_no: int | None = None,
 ) -> None:
     with td.connect(db_path) as con:
+        summary_json = content if content.lstrip().startswith("{") else None
         con.execute(
             "INSERT INTO contributions(run_id, stage, actor, round_no, content, "
-            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            ("run-1", stage, actor, round_no, content, td.utc_now()),
+            "summary_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                stage,
+                actor,
+                round_no,
+                "# Report" if summary_json else content,
+                summary_json,
+                td.utc_now(),
+            ),
         )
 
 
@@ -373,7 +378,7 @@ def test_debate_context_uses_summaries_and_previous_full_turn(tmp_path: Path):
     context = assemble_context(run, evidence, contributions, "debate")
 
     assert context["next_turn"] == {"actor": "bear", "round": 1}
-    assert context["previous_opposing_turn"]["content"] == bull
+    assert context["previous_opposing_turn"]["content"] == "# Report"
     assert len(context["contribution_summaries"]) == 5
     assert [item["evidence_id"] for item in context["referenced_evidence"]] == [
         evidence_id

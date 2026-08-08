@@ -62,13 +62,13 @@ Use canonical roles when persisting work. Display names such as
 are accepted for compatibility, but are stored as canonical roles.
 
 ```shell
-trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md
-trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md
-trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md
-trading-debate record --run-id $run.run_id --stage analysis --actor sentiment --content-file sentiment.md
-trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull --content-file bull-round-1.md
-trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-file bear-round-1.md
-trading-debate record --run-id $run.run_id --stage verdict --actor committee --verdict hold --confidence medium --content-file committee.md
+trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md --summary-json '<fundamentals-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md --summary-json '<technical-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md --summary-json '<news-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor sentiment --content-file sentiment.md --summary-json '<sentiment-summary-json>'
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull --content-file bull-round-1.md --summary-json '<bull-summary-json>'
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-file bear-round-1.md --summary-json '<bear-summary-json>'
+trading-debate record --run-id $run.run_id --stage verdict --verdict hold --confidence medium --actor committee --content-file committee.md --summary-json '<committee-summary-json>'
 trading-debate render --run-id $run.run_id
 trading-debate export --run-id $run.run_id --output ./NVDA-report.md
 trading-debate search --query NVDA
@@ -81,11 +81,14 @@ recent 30 daily, 26 weekly, and 12 monthly OHLCV bars while preserving the full
 history in SQLite. Each fetch is stored as an immutable evidence batch; contexts
 and reports use the latest completed or partial batch, never a mixture of dates.
 
-Each role and debate turn has one logical record. Re-sending identical content
-returns a `duplicate` status without adding a row. To change an existing record,
-pass `--replace`; replacement is refused once a downstream debate or verdict
-depends on it. A committee that cannot rate the evidence must
-explicitly use `--abstain` instead of omitting verdict arguments.
+Each role and debate turn has one logical record. Human-readable Markdown is stored
+in `content` and its machine-readable JSON is stored separately in
+`contributions.summary_json`; reports and the web UI do not filter summaries out of
+Markdown. Re-sending identical content and summary returns a `duplicate` status
+without adding a row. To change an existing record, pass `--replace`; replacement
+is refused once a downstream debate or verdict depends on it. A committee that
+cannot rate the evidence must explicitly use `--abstain` instead of omitting
+verdict arguments.
 
 ## Local historical research UI
 

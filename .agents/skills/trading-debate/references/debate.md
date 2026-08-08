@@ -66,7 +66,7 @@ A valid rebuttal contains:
 - 最關鍵證據：
 - 最大弱點：
 
-## Machine-readable summary
+The separate `--summary-json` payload must contain:
 ```json
 {
   "actor": "bull|bear",
@@ -91,7 +91,7 @@ A valid rebuttal contains:
 ```
 ````
 
-The JSON summary is required for every turn and must agree with the Markdown. Later turns and the Committee consume it as the compact debate state. Include all evidence IDs needed to verify its claims.
+The JSON summary is required for every turn and must agree with the Markdown. Later turns and the Committee consume it as the compact debate state. Include all evidence IDs needed to verify its claims. Do not append it to the Markdown report.
 
 ## Debate order
 

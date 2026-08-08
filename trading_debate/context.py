@@ -22,10 +22,6 @@ CONTEXT_ROLES = (
     "committee",
 )
 
-_SUMMARY_RE = re.compile(
-    r"## Machine-readable summary\s*```json\s*(\{.*?\})\s*```",
-    flags=re.DOTALL | re.IGNORECASE,
-)
 _EVIDENCE_ID_RE = re.compile(r"^EVID-\d{4,}$")
 _OHLCV_LIMITS = {
     "Daily OHLCV history": 30,
@@ -89,13 +85,12 @@ class ContextSummaryError(ValueError):
     """Raised when a required downstream machine summary is absent or invalid."""
 
 
-def parse_machine_summary(content: str) -> dict[str, Any]:
-    """Extract one JSON machine summary from a persisted Markdown contribution."""
-    match = _SUMMARY_RE.search(content)
-    if not match:
-        raise ContextSummaryError("missing Machine-readable summary JSON block")
+def parse_machine_summary(summary_json: str | None) -> dict[str, Any]:
+    """Decode a machine summary stored in the contributions SQL column."""
+    if not summary_json:
+        raise ContextSummaryError("missing machine summary JSON")
     try:
-        summary = json.loads(match.group(1))
+        summary = json.loads(summary_json)
     except json.JSONDecodeError as exc:
         raise ContextSummaryError(
             f"invalid Machine-readable summary JSON: {exc}"
@@ -105,9 +100,9 @@ def parse_machine_summary(content: str) -> dict[str, Any]:
     return summary
 
 
-def validate_news_content_summary(content: str) -> dict[str, Any]:
+def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
     """Validate the structured handoff produced by the news summarizer."""
-    summary = parse_machine_summary(content)
+    summary = parse_machine_summary(summary_json)
     if summary.get("actor") != "news_content":
         raise ContextSummaryError("news content summary actor must be news_content")
     if summary.get("stance") != "neutral":
@@ -476,7 +471,7 @@ def _latest_news_content_summary(
     for row in reversed(contributions):
         if row["stage"] == "analysis" and row["actor"] == "news_content":
             try:
-                return validate_news_content_summary(row["content"])
+                return validate_news_content_summary(row["summary_json"])
             except ContextSummaryError:
                 return None
     return None
@@ -505,7 +500,7 @@ def news_content_summary_status(
     if not contribution:
         return {}, "尚未產生新聞內文總結"
     try:
-        summary = validate_news_content_summary(contribution["content"])
+        summary = validate_news_content_summary(contribution["summary_json"])
     except ContextSummaryError as exc:
         return {}, f"新聞內文總結格式無效：{exc}"
     summaries = {
@@ -567,7 +562,7 @@ def _required_summaries(
     summaries = []
     for row in rows:
         try:
-            summary = parse_machine_summary(row["content"])
+            summary = parse_machine_summary(row["summary_json"])
         except ContextSummaryError as exc:
             label = f"{row['stage']}/{row['actor']}"
             if row["round_no"]:

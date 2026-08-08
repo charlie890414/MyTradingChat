@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -12,7 +14,11 @@ from .utils import as_json, is_news_source, utc_now
 RUN_STATUSES = frozenset({"active", "incomplete", "completed", "failed"})
 RATINGS = frozenset({"buy", "hold", "reduce"})
 CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
+_LEGACY_SUMMARY_RE = re.compile(
+    r"\n## Machine-readable summary\s*```json\s*(\{.*?\})\s*```",
+    flags=re.DOTALL | re.IGNORECASE,
+)
 
 _ACTOR_ALIASES = {
     "analysis": {
@@ -103,7 +109,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           run_id TEXT NOT NULL REFERENCES runs(id),
           stage TEXT NOT NULL, actor TEXT NOT NULL, round_no INTEGER,
-          content TEXT NOT NULL, created_at TEXT NOT NULL
+          content TEXT NOT NULL, summary_json TEXT, created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS ix_runs_symbol
           ON runs(symbol, created_at DESC);
@@ -122,13 +128,22 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _migrate_contributions(con: sqlite3.Connection) -> None:
-    """Canonicalize legacy actors and add a unique logical contribution key."""
+    """Canonicalize contributions and move legacy summaries into SQL."""
     version = con.execute("PRAGMA user_version").fetchone()[0]
-    if version >= _SCHEMA_VERSION:
+    legacy_summary = con.execute(
+        "SELECT 1 FROM contributions "
+        "WHERE summary_json IS NULL AND content LIKE '%## Machine-readable summary%' "
+        "LIMIT 1"
+    ).fetchone()
+    if version >= _SCHEMA_VERSION and not legacy_summary:
         return
 
+    columns = {row[1] for row in con.execute("PRAGMA table_info(contributions)")}
+    if "summary_json" not in columns:
+        with con:
+            con.execute("ALTER TABLE contributions ADD COLUMN summary_json TEXT")
     rows = con.execute(
-        "SELECT id, run_id, stage, actor, round_no, content "
+        "SELECT id, run_id, stage, actor, round_no, content, summary_json "
         "FROM contributions ORDER BY id"
     ).fetchall()
     normalized: dict[int, str] = {}
@@ -170,6 +185,28 @@ def _migrate_contributions(con: sqlite3.Connection) -> None:
             con.executemany(
                 "DELETE FROM contributions WHERE id = ?",
                 [(row_id,) for row_id in duplicate_ids],
+            )
+        for row in rows:
+            if row["summary_json"] is not None:
+                continue
+            match = _LEGACY_SUMMARY_RE.search(row["content"])
+            if not match:
+                continue
+            try:
+                summary = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(summary, dict):
+                continue
+            con.execute(
+                "UPDATE contributions SET content = ?, summary_json = ? WHERE id = ?",
+                (
+                    (
+                        row["content"][: match.start()] + row["content"][match.end() :]
+                    ).strip(),
+                    json.dumps(summary, ensure_ascii=False, sort_keys=True),
+                    row["id"],
+                ),
             )
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_contributions_logical "

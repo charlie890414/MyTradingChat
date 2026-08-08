@@ -32,9 +32,17 @@ def _insert_run(db_path: Path, report_path: Path | None = None) -> None:
         )
         td.insert_evidence(con, "run-1", "Source", "Evidence", {"value": 1})
         con.execute(
-            "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("run-1", "analysis", "fundamentals", None, "content", td.utc_now()),
+            "INSERT INTO contributions(run_id, stage, actor, round_no, content, "
+            "summary_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                "analysis",
+                "fundamentals",
+                None,
+                "content",
+                None,
+                td.utc_now(),
+            ),
         )
 
 
@@ -56,7 +64,7 @@ def test_report_is_rendered_from_sqlite_without_report_path(tmp_path: Path):
     assert "NVDA 多代理研究報告" in sent["body"]
 
 
-def test_web_hides_machine_readable_summary_from_contributions(tmp_path: Path):
+def test_web_displays_content_without_summary_filter(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     _insert_run(db_path)
     content = (
@@ -71,8 +79,7 @@ def test_web_hides_machine_readable_summary_from_contributions(tmp_path: Path):
         stored = con.execute("SELECT content FROM contributions").fetchone()[0]
 
     display = _display_contributions(parts, "analysis")
-    assert display[0]["content"] == "# Human-readable analysis\n\n正文內容"
-    assert "Machine-readable summary" not in display[0]["content"]
+    assert display[0]["content"] == content
     assert stored == content
 
 
@@ -239,20 +246,19 @@ def test_detail_uses_news_content_summary_instead_of_raw_payload(tmp_path: Path)
             published_at="2026-08-08",
         )
         con.execute(
-            "INSERT INTO contributions(run_id, stage, actor, round_no, content, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO contributions(run_id, stage, actor, round_no, content, "
+            "summary_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 "run-1",
                 "analysis",
                 "news_content",
                 None,
-                "## Machine-readable summary\n```json\n"
+                "news summary",
                 '{"actor":"news_content","stance":"neutral","confidence":"medium",'
                 '"evidence_ids":["EVID-0002"],"evidence_gaps":[],"article_summaries":'
                 '[{"evidence_id":"EVID-0002","summary":"Readable event summary",'
                 '"body_available":true,"event_date":"2026-08-08",'
-                '"source_quality":"high","materiality":"high"}]}'
-                "\n```",
+                '"source_quality":"high","materiality":"high"}]}',
                 td.utc_now(),
             ),
         )
@@ -316,9 +322,7 @@ def test_detail_explains_missing_or_invalid_news_content_summary(tmp_path: Path)
 
     invalid = _detail_evidence(evidence, parts)[1]
     assert invalid["news_summary_status"].startswith("新聞內文總結格式無效：")
-    assert (
-        "missing Machine-readable summary JSON block" in invalid["news_summary_status"]
-    )
+    assert "missing machine summary JSON" in invalid["news_summary_status"]
 
 
 def test_ui_delete_ignores_report_path_outside_configured_directory(tmp_path: Path):

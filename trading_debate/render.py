@@ -160,7 +160,9 @@ def _render_status(
         verdict_parts = [row for row in parts if row["stage"] == "verdict"]
         if len(verdict_parts) != 1 or verdict_parts[0]["actor"].lower() != "committee":
             limitations.append("投資委員會裁決紀錄不唯一或角色不正確。")
-        elif not _valid_verdict_summary(run, evidence, verdict_parts[0]["content"]):
+        elif not _valid_verdict_summary(
+            run, evidence, verdict_parts[0]["summary_json"]
+        ):
             limitations.append(
                 "投資委員會缺少與資料庫一致、可驗證的 machine-readable summary。"
             )
@@ -168,11 +170,11 @@ def _render_status(
 
 
 def _valid_verdict_summary(
-    run: sqlite3.Row, evidence: list[sqlite3.Row], content: str
+    run: sqlite3.Row, evidence: list[sqlite3.Row], summary_json: str | None
 ) -> bool:
     """Validate the committee's structured conclusion against persisted data."""
     try:
-        summary = parse_machine_summary(content)
+        summary = parse_machine_summary(summary_json)
     except ContextSummaryError:
         return False
     if summary.get("recommendation") != run["verdict"]:

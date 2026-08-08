@@ -60,6 +60,40 @@ def _record_args(db_path: Path, **overrides: object) -> MagicMock:
     args.replace = False
     for key, value in overrides.items():
         setattr(args, key, value)
+    if not isinstance(getattr(args, "summary_json", None), str):
+        actor = str(args.actor).lower()
+        actor = {
+            "fundamentals analyst": "fundamentals",
+            "technical analyst": "technical",
+            "news analyst": "news",
+            "sentiment analyst": "sentiment",
+            "bull researcher": "bull",
+            "bear researcher": "bear",
+            "investment committee": "committee",
+        }.get(actor, actor)
+        payload = {
+            "actor": actor,
+            "confidence": "medium",
+            "evidence_ids": ["EVID-0001"],
+            "critical_evidence_ids": ["EVID-0001"],
+        }
+        if args.stage == "analysis":
+            payload.update(stance="neutral", evidence_gaps=[])
+        elif args.stage == "debate":
+            payload.update(
+                round=args.round,
+                stance="bullish" if actor == "bull" else "bearish",
+                opposing_claims=[],
+                updated_claims=[],
+                unresolved_disagreements=[],
+            )
+        else:
+            payload.update(
+                recommendation=args.verdict or "hold",
+                confidence=args.confidence or "medium",
+                fetch_time=td.utc_now(),
+            )
+        args.summary_json = json.dumps(payload)
     return args
 
 
@@ -83,7 +117,16 @@ def test_cmd_record_rejects_invalid_news_content_summary(tmp_path: Path):
     )
 
     with pytest.raises(SystemExit, match="Invalid news content summary"):
-        td.cmd_record(_record_args(db_path, actor="news_content", content=content))
+        td.cmd_record(
+            _record_args(
+                db_path,
+                actor="news_content",
+                content="news content",
+                summary_json=content.removeprefix(
+                    "## Machine-readable summary\n```json\n"
+                ).removesuffix("\n```"),
+            )
+        )
 
     with td.connect(db_path) as con:
         assert (
@@ -1306,19 +1349,14 @@ def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
             actor="committee",
             verdict="hold",
             confidence="medium",
-            content=(
-                "# 投資委員會裁決\n\n"
-                "## Machine-readable summary\n"
-                "```json\n"
-                + json.dumps(
-                    {
-                        "recommendation": "hold",
-                        "confidence": "medium",
-                        "fetch_time": fetch_time,
-                        "critical_evidence_ids": ["EVID-0001"],
-                    }
-                )
-                + "\n```"
+            content="# 投資委員會裁決",
+            summary_json=json.dumps(
+                {
+                    "recommendation": "hold",
+                    "confidence": "medium",
+                    "fetch_time": fetch_time,
+                    "critical_evidence_ids": ["EVID-0001"],
+                }
             ),
         )
     )

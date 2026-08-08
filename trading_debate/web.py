@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import html
 import mimetypes
-import re
 import secrets
 import sqlite3
 from http import HTTPStatus
@@ -24,11 +23,6 @@ from .utils import is_news_source
 
 _STATUSES = ("active", "fetching", "incomplete", "completed", "failed")
 _VERDICTS = ("buy", "hold", "reduce", "abstain")
-_MACHINE_SUMMARY_RE = re.compile(
-    r"\n## Machine-readable summary\s*```json\s*\{.*?\}\s*```\s*$",
-    flags=re.DOTALL | re.IGNORECASE,
-)
-
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 _csrf_token = ""
@@ -133,11 +127,7 @@ def _display_contributions(
     contributions: list[sqlite3.Row], stage: str
 ) -> list[dict[str, object]]:
     """Return contribution content suitable for the human-facing web UI."""
-    return [
-        dict(item) | {"content": _MACHINE_SUMMARY_RE.sub("", item["content"]).strip()}
-        for item in contributions
-        if item["stage"] == stage
-    ]
+    return [dict(item) for item in contributions if item["stage"] == stage]
 
 
 class ResearchApp(BaseHTTPRequestHandler):

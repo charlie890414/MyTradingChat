@@ -73,12 +73,11 @@ The JSON must be syntactically valid. Every object property must use the exact
 second field name inside a quoted key. Put all explanatory prose in the string
 value of `summary`. Include one `article_summaries` object for every retained
 evidence ID, and include each of those IDs in the top-level `evidence_ids` list.
-Before persisting the report, parse the block as JSON and correct any error.
+Before persisting the report, validate the separate summary JSON and correct any error.
 
-The `## Machine-readable summary` JSON block must be the absolute last element of
-the file. Do not append any note, footer, horizontal rule, or prose after the
-closing code fence — the web UI only hides the machine-readable block when it is
-the final content of the report.
+The machine-readable summary is not part of the Markdown file. Pass it separately
+with `--summary-json`; SQLite stores it in `contributions.summary_json` and
+downstream stages read that column directly.
 
 ### Deduplicate before summarizing
 
@@ -123,7 +122,8 @@ Every analyst report must:
 
 ### Required analyst output format
 
-Each analyst must use the following Markdown structure:
+Each analyst must use the following Markdown structure. Do not append a
+machine-readable JSON block to the Markdown:
 
 ````markdown
 # <分析師角色>
@@ -155,7 +155,7 @@ Each analyst must use the following Markdown structure:
 - 時間範圍：
 - 主要依據：
 
-## Machine-readable summary
+The separate `--summary-json` payload must contain:
 ```json
 {
   "actor": "<analyst name>",
@@ -173,9 +173,7 @@ Each analyst must use the following Markdown structure:
 The JSON summary must be consistent with the Markdown report.
 It is the downstream handoff to Bull, Bear, and Committee agents. Include every evidence ID needed to verify the summarized claims; it does not replace the full report or source evidence.
 
-The `## Machine-readable summary` JSON block must be the last element of the
-file; place no text, footer, or horizontal rule after its closing code fence.
-The web UI relies on the block being at the end to hide it from readers.
+Do not append the JSON summary to the Markdown report.
 
 ## Fundamentals Analyst
 
@@ -297,7 +295,7 @@ data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
 Persist one record per analyst:
 
 ```shell
-uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md --summary-json '<fundamentals-summary-json>'
 ```
 
 Persist the News Content Summarizer first with `--actor news_content`; it is then

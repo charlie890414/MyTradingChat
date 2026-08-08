@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -500,19 +501,15 @@ def _validate_machine_summary_at_write(
     con: Any,
     args: argparse.Namespace,
     actor: str,
-    content: str,
+    summary_json: str | None,
     verdict: str | None,
     confidence: str | None,
 ) -> None:
-    """Validate structured agent output before it can block downstream stages.
-
-    Legacy plain-text records remain readable, but any supplied machine summary
-    is validated immediately instead of failing later during context assembly.
-    """
-    if "Machine-readable summary" not in content:
+    """Validate the independently stored machine summary before persistence."""
+    if summary_json is None:
         return
     try:
-        summary = parse_machine_summary(content)
+        summary = parse_machine_summary(summary_json)
     except ContextSummaryError as exc:
         raise SystemExit(f"Invalid machine-readable summary: {exc}") from exc
     evidence_ids = summary.get("evidence_ids", [])
@@ -584,12 +581,29 @@ def cmd_record(args: argparse.Namespace) -> None:
             actor = normalize_contribution_actor(args.stage, args.actor)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        raw_summary_json = getattr(args, "summary_json", None)
+        if not isinstance(raw_summary_json, str):
+            raw_summary_json = None
+        summary_json = None
+        if raw_summary_json is not None:
+            try:
+                parsed_summary = json.loads(raw_summary_json)
+                if not isinstance(parsed_summary, dict):
+                    raise SystemExit("--summary-json must be a JSON object")
+                summary_json = json.dumps(
+                    parsed_summary,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise SystemExit("--summary-json must be a valid JSON object") from exc
         _validate_machine_summary_at_write(
-            con, args, actor, content.strip(), verdict, confidence
+            con, args, actor, summary_json, verdict, confidence
         )
         if args.stage == "analysis" and actor == "news_content":
             try:
-                summary = validate_news_content_summary(content.strip())
+                summary = validate_news_content_summary(summary_json)
             except ContextSummaryError as exc:
                 raise SystemExit(f"Invalid news content summary: {exc}") from exc
             valid_ids = {
@@ -608,7 +622,10 @@ def cmd_record(args: argparse.Namespace) -> None:
             con, args.run_id, args.stage, actor, args.round
         )
         if existing:
-            same_content = existing["content"] == content.strip()
+            same_content = (
+                existing["content"] == content.strip()
+                and existing["summary_json"] == summary_json
+            )
             same_verdict = args.stage != "verdict" or (
                 run_metadata["verdict"],
                 run_metadata["confidence"],
@@ -629,8 +646,9 @@ def cmd_record(args: argparse.Namespace) -> None:
                     )
                 _validate_record(con, args, actor, existing=existing)
                 con.execute(
-                    "UPDATE contributions SET content = ?, created_at = ? WHERE id = ?",
-                    (content.strip(), utc_now(), existing["id"]),
+                    "UPDATE contributions SET content = ?, summary_json = ?, "
+                    "created_at = ? WHERE id = ?",
+                    (content.strip(), summary_json, utc_now(), existing["id"]),
                 )
                 if args.stage == "verdict":
                     update_run_verdict(
@@ -648,8 +666,8 @@ def cmd_record(args: argparse.Namespace) -> None:
             con.execute(
                 """
                 INSERT INTO contributions(
-                    run_id, stage, actor, round_no, content, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    run_id, stage, actor, round_no, content, summary_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     args.run_id,
@@ -657,6 +675,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                     actor,
                     args.round,
                     content.strip(),
+                    summary_json,
                     utc_now(),
                 ),
             )
@@ -787,6 +806,10 @@ def parser() -> argparse.ArgumentParser:
     source = record.add_mutually_exclusive_group(required=True)
     source.add_argument("--content")
     source.add_argument("--content-file")
+    record.add_argument(
+        "--summary-json",
+        help="Independent machine-readable summary JSON stored in SQLite",
+    )
     record.set_defaults(func=cmd_record)
 
     render = sub.add_parser("render")
