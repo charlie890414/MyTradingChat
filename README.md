@@ -62,14 +62,14 @@ Use canonical roles when persisting work. Display names such as
 are accepted for compatibility, but are stored as canonical roles.
 
 ```shell
-trading-debate record --run-id $run.run_id --stage analysis --actor news_content --content-file news-content.md --summary-json '<news-content-summary-json>'
-trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-file fundamentals.md --summary-json '<fundamentals-summary-json>'
-trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-file technical.md --summary-json '<technical-summary-json>'
-trading-debate record --run-id $run.run_id --stage analysis --actor news --content-file news.md --summary-json '<news-summary-json>'
-trading-debate record --run-id $run.run_id --stage analysis --actor sentiment --content-file sentiment.md --summary-json '<sentiment-summary-json>'
-trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull --content-file bull-round-1.md --summary-json '<bull-summary-json>'
-trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-file bear-round-1.md --summary-json '<bear-summary-json>'
-trading-debate record --run-id $run.run_id --stage verdict --verdict hold --confidence medium --actor committee --content-file committee.md --summary-json '<committee-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor news_content --content-stdin --summary-json '<news-content-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor fundamentals --content-stdin --summary-json '<fundamentals-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor technical --content-stdin --summary-json '<technical-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor news --content-stdin --summary-json '<news-summary-json>'
+trading-debate record --run-id $run.run_id --stage analysis --actor sentiment --content-stdin --summary-json '<sentiment-summary-json>'
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bull --content-stdin --summary-json '<bull-summary-json>'
+trading-debate record --run-id $run.run_id --stage debate --round 1 --actor bear --content-stdin --summary-json '<bear-summary-json>'
+trading-debate record --run-id $run.run_id --stage verdict --verdict hold --confidence medium --actor committee --content-stdin --summary-json '<committee-summary-json>'
 trading-debate render --run-id $run.run_id
 trading-debate export --run-id $run.run_id --output ./NVDA-report.md
 trading-debate search --query NVDA
@@ -90,6 +90,10 @@ without adding a row. To change an existing record, pass `--replace`; replacemen
 is refused once a downstream debate or verdict depends on it. A committee that
 cannot rate the evidence must explicitly use `--abstain` instead of omitting
 verdict arguments.
+
+Use `--content-stdin` to pass the generated Markdown directly to the CLI. The
+workflow does not create staging Markdown files under `data/`; only SQLite
+research data is retained there.
 
 ## Local historical research UI
 

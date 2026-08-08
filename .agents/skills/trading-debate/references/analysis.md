@@ -336,26 +336,13 @@ The Sentiment Analyst may use Yahoo Finance headlines and configured sentiment c
 
 ## Persist analyst reports
 
-Write each returned Markdown report to:
-
-```text
-data/staging/<YYYY-MM-DD>/<SYMBOL>/<actor>.md
-```
-
-Recommended stable filenames:
-
-```text
-data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md
-data/staging/<YYYY-MM-DD>/<SYMBOL>/technical-analyst.md
-data/staging/<YYYY-MM-DD>/<SYMBOL>/news-content-summarizer.md
-data/staging/<YYYY-MM-DD>/<SYMBOL>/news-events-analyst.md
-data/staging/<YYYY-MM-DD>/<SYMBOL>/sentiment-analyst.md
-```
+Do not write returned Markdown reports to files. Pass each report directly to
+the CLI through stdin so only the SQLite contribution is retained.
 
 Persist one record per analyst:
 
 ```shell
-uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-file data/staging/<YYYY-MM-DD>/<SYMBOL>/fundamentals-analyst.md --summary-json '<fundamentals-summary-json>'
+uv run python -m trading_debate.cli record --run-id <run-id> --stage analysis --actor fundamentals --content-stdin --summary-json '<fundamentals-summary-json>'
 ```
 
 Persist the News Content Summarizer first with `--actor news_content`; it is then

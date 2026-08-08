@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -49,6 +50,7 @@ def _record_args(db_path: Path, **overrides: object) -> MagicMock:
     args.db = db_path
     args.run_id = "run-1"
     args.content_file = None
+    args.content_stdin = False
     args.content = "content"
     args.stage = "analysis"
     args.actor = "Fundamentals Analyst"
@@ -379,7 +381,9 @@ def test_article_text_attempts_every_url_and_records_failures():
             return None, {"state": "failed", "reason": "timeout"}
         return f"body for {url}", {"state": "available"}
 
-    with patch("trading_debate.cli.fetch_article_text_result", side_effect=fetch) as mocked:
+    with patch(
+        "trading_debate.cli.fetch_article_text_result", side_effect=fetch
+    ) as mocked:
         _enrich_news_with_article_text(items, "AAPL", "Apple Inc.")
 
     assert mocked.call_count == 13
@@ -1037,6 +1041,21 @@ def test_cmd_record_valid(tmp_path: Path, capsys):
     parsed = json.loads(captured.out.strip())
     assert parsed["recorded"] is True
     assert parsed["stage"] == "analysis"
+
+
+def test_cmd_record_reads_content_from_stdin(tmp_path: Path, capsys):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    args = _record_args(db_path, content=None, content_file=None, content_stdin=True)
+
+    with patch.object(sys, "stdin") as stdin:
+        stdin.read.return_value = "stdin report"
+        td.cmd_record(args)
+
+    assert json.loads(capsys.readouterr().out)["record_status"] == "created"
+    with td.connect(db_path) as con:
+        row = con.execute("SELECT content FROM contributions").fetchone()
+    assert row["content"] == "stdin report"
 
 
 def test_cmd_record_requires_evidence(tmp_path: Path):

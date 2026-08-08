@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -611,11 +612,14 @@ def _validate_machine_summary_at_write(
 
 
 def cmd_record(args: argparse.Namespace) -> None:
-    content = (
-        Path(args.content_file).read_text(encoding="utf-8")
-        if args.content_file
-        else args.content
-    )
+    if getattr(args, "content_stdin", False) is True:
+        content = sys.stdin.read()
+    else:
+        content = (
+            Path(args.content_file).read_text(encoding="utf-8")
+            if args.content_file
+            else args.content
+        )
     if not content or not content.strip():
         raise SystemExit("Provide non-empty --content or --content-file")
     verdict, confidence = _validate_verdict_options(args)
@@ -867,6 +871,11 @@ def parser() -> argparse.ArgumentParser:
     source = record.add_mutually_exclusive_group(required=True)
     source.add_argument("--content")
     source.add_argument("--content-file")
+    source.add_argument(
+        "--content-stdin",
+        action="store_true",
+        help="Read the Markdown contribution from standard input",
+    )
     record.add_argument(
         "--summary-json",
         help="Independent machine-readable summary JSON stored in SQLite",
