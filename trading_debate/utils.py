@@ -68,10 +68,21 @@ _LEGAL_NAME_WORDS = frozenset(
     }
 )
 _TRACKING_PARAMETERS = frozenset({"ref", "source", "src", "oc"})
-_ARTICLE_MAX_BYTES = 250_000
+_ARTICLE_MAX_BYTES = 1_000_000
 _ARTICLE_MAX_CHARS = 12_000
 _IGNORED_HTML_TAGS = frozenset(
-    {"head", "script", "style", "noscript", "svg", "template"}
+    {
+        "aside",
+        "footer",
+        "form",
+        "head",
+        "nav",
+        "script",
+        "style",
+        "noscript",
+        "svg",
+        "template",
+    }
 )
 
 

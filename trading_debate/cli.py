@@ -341,7 +341,9 @@ def cmd_context(args: argparse.Namespace) -> None:
     if not run:
         raise SystemExit(f"Unknown run id: {args.run_id}")
     try:
-        context = assemble_context(run, evidence, contributions, args.role)
+        context = assemble_context(
+            run, evidence, contributions, args.role, batch=getattr(args, "batch", None)
+        )
     except ContextSummaryError as exc:
         raise SystemExit(f"Cannot build {args.role} context: {exc}") from exc
     context["evidence_batch"] = dict(batch) if batch else None
@@ -839,6 +841,11 @@ def parser() -> argparse.ArgumentParser:
     context = sub.add_parser("context")
     context.add_argument("--run-id", required=True)
     context.add_argument("--role", choices=CONTEXT_ROLES, required=True)
+    context.add_argument(
+        "--batch",
+        type=int,
+        help="Select one news_content article batch without sending all batches",
+    )
     context.set_defaults(func=cmd_context)
 
     record = sub.add_parser("record")

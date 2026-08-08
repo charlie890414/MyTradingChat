@@ -23,6 +23,10 @@ CONTEXT_ROLES = (
 )
 
 _EVIDENCE_ID_RE = re.compile(r"^EVID-\d{4,}$")
+_NEWS_CONTENT_BATCH_TOKEN_BUDGET = 6_000
+_NEWS_CONTENT_TOTAL_TOKEN_BUDGET = 18_000
+_NEWS_CONTENT_MAX_ARTICLES_PER_BATCH = 4
+_ARTICLE_EXCERPT_CHARS = 4_000
 _OHLCV_LIMITS = {
     "Daily OHLCV history": 30,
     "Weekly adjusted OHLCV history": 26,
@@ -114,6 +118,7 @@ def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
     if not isinstance(summary.get("evidence_gaps"), list):
         raise ContextSummaryError("news content summary evidence_gaps must be a list")
     _validate_summary_evidence_ids(summary)
+    _validate_news_merge_metadata(summary)
 
     article_summaries = summary.get("article_summaries")
     if not isinstance(article_summaries, list) or not article_summaries:
@@ -121,6 +126,7 @@ def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
             "news content summary article_summaries must be a non-empty list"
         )
     evidence_ids = set(summary["evidence_ids"])
+    seen_evidence_ids: set[str] = set()
     for index, item in enumerate(article_summaries):
         prefix = f"article_summaries[{index}]"
         if not isinstance(item, dict):
@@ -134,6 +140,11 @@ def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
             raise ContextSummaryError(
                 f"{prefix}.evidence_id must also appear in evidence_ids"
             )
+        if evidence_id in seen_evidence_ids:
+            raise ContextSummaryError(
+                f"{prefix}.evidence_id is duplicated; merge batch records by ID first"
+            )
+        seen_evidence_ids.add(evidence_id)
         if not isinstance(item.get("body_available"), bool):
             raise ContextSummaryError(f"{prefix}.body_available must be a boolean")
         if not isinstance(item.get("event_date"), str):
@@ -151,7 +162,94 @@ def validate_news_content_summary(summary_json: str | None) -> dict[str, Any]:
             raise ContextSummaryError(
                 f"{prefix}.source_quality must be a non-empty string"
             )
+        for key in ("event_id", "source_language"):
+            if key in item and (
+                not isinstance(item[key], str) or not item[key].strip()
+            ):
+                raise ContextSummaryError(f"{prefix}.{key} must be a non-empty string")
+        if "is_primary" in item and not isinstance(item["is_primary"], bool):
+            raise ContextSummaryError(f"{prefix}.is_primary must be a boolean")
+        related_ids = item.get("related_evidence_ids", [])
+        if not isinstance(related_ids, list) or not all(
+            isinstance(related, str) and _EVIDENCE_ID_RE.fullmatch(related)
+            for related in related_ids
+        ):
+            raise ContextSummaryError(
+                f"{prefix}.related_evidence_ids must be a list of evidence IDs"
+            )
+        if any(related not in evidence_ids for related in related_ids):
+            raise ContextSummaryError(
+                f"{prefix}.related_evidence_ids must appear in evidence_ids"
+            )
+        if evidence_id in related_ids:
+            raise ContextSummaryError(
+                f"{prefix}.related_evidence_ids must not contain its own evidence_id"
+            )
+    _validate_news_event_groups(summary, article_summaries)
     return summary
+
+
+def _validate_news_merge_metadata(summary: dict[str, Any]) -> None:
+    metadata = summary.get("merge_metadata")
+    if metadata is None:
+        return
+    if not isinstance(metadata, dict):
+        raise ContextSummaryError("merge_metadata must be an object")
+    batch_count = metadata.get("batch_count")
+    if not isinstance(batch_count, int) or batch_count < 1:
+        raise ContextSummaryError(
+            "merge_metadata.batch_count must be a positive integer"
+        )
+    batch_numbers = metadata.get("batch_numbers")
+    if (
+        not isinstance(batch_numbers, list)
+        or not batch_numbers
+        or len(set(batch_numbers)) != len(batch_numbers)
+        or any(not isinstance(number, int) or number < 1 for number in batch_numbers)
+    ):
+        raise ContextSummaryError(
+            "merge_metadata.batch_numbers must be unique positive integers"
+        )
+    if max(batch_numbers) > batch_count:
+        raise ContextSummaryError(
+            "merge_metadata.batch_numbers cannot exceed batch_count"
+        )
+    if "unique_event_count" in metadata and (
+        not isinstance(metadata["unique_event_count"], int)
+        or metadata["unique_event_count"] < 1
+    ):
+        raise ContextSummaryError(
+            "merge_metadata.unique_event_count must be a positive integer"
+        )
+
+
+def _validate_news_event_groups(
+    summary: dict[str, Any], article_summaries: list[dict[str, Any]]
+) -> None:
+    if summary.get("merge_metadata") is None:
+        return
+    events: dict[str, int] = {}
+    for item in article_summaries:
+        event_id = item.get("event_id")
+        if not isinstance(event_id, str):
+            raise ContextSummaryError(
+                "merged article summaries must all include event_id"
+            )
+        if "is_primary" not in item:
+            raise ContextSummaryError(
+                "merged article summaries must mark is_primary for every event"
+            )
+        if item["is_primary"]:
+            events[event_id] = events.get(event_id, 0) + 1
+        else:
+            events.setdefault(event_id, 0)
+    if any(count != 1 for count in events.values()):
+        raise ContextSummaryError("each merged event must have exactly one primary")
+    unique_event_count = summary["merge_metadata"].get("unique_event_count")
+    if unique_event_count is not None and unique_event_count != len(events):
+        raise ContextSummaryError(
+            "merge_metadata.unique_event_count does not match event_id groups"
+        )
 
 
 def assemble_context(
@@ -159,6 +257,8 @@ def assemble_context(
     evidence: list[sqlite3.Row],
     contributions: list[sqlite3.Row],
     role: str,
+    *,
+    batch: int | None = None,
 ) -> dict[str, Any]:
     """Build the minimum evidence and prior-stage state needed by ``role``."""
     if role not in CONTEXT_ROLES:
@@ -178,10 +278,31 @@ def assemble_context(
     investable = [row for row in evidence if not _is_status(row)]
     if role in {"fundamentals", "technical", "news_content", "news", "sentiment"}:
         selected = _select_analyst_evidence(investable, role)
-        base["evidence"] = [
-            _serialize_evidence(row, include_article_text=role == "news_content")
-            for row in selected
-        ]
+        if role == "news_content":
+            selected = _limit_news_content_evidence(selected)
+            batches = _news_content_batches(selected, run)
+            batch_count = len(batches)
+            if batch is not None:
+                if batch < 1 or batch > batch_count:
+                    raise ContextSummaryError(
+                        f"news_content batch must be between 1 and {batch_count}"
+                    )
+                batches = [batches[batch - 1]]
+                base["news_content_batch"] = {"number": batch, "count": batch_count}
+            else:
+                base["news_content_batch"] = {
+                    "number": 1,
+                    "count": batch_count,
+                    "next": 2 if batch_count > 1 else None,
+                }
+            base["evidence"] = batches[0] if batches else []
+            base["news_content_batches"] = {
+                "count": batch_count,
+                "token_budget": _NEWS_CONTENT_BATCH_TOKEN_BUDGET,
+                "total_token_budget": _NEWS_CONTENT_TOTAL_TOKEN_BUDGET,
+            }
+        else:
+            base["evidence"] = [_serialize_evidence(row) for row in selected]
         if role == "news":
             summary = _latest_news_content_summary(contributions)
             base["news_content_summary"] = summary
@@ -234,7 +355,10 @@ def _payload(row: sqlite3.Row) -> Any:
 
 
 def _serialize_evidence(
-    row: sqlite3.Row, *, include_article_text: bool = False
+    row: sqlite3.Row,
+    *,
+    include_article_text: bool = False,
+    relevance_text: str = "",
 ) -> dict[str, Any]:
     payload = _compact_payload(
         str(row["title"]),
@@ -242,6 +366,7 @@ def _serialize_evidence(
         _payload(row),
         published_at=row["published_at"],
         include_article_text=include_article_text,
+        relevance_text=relevance_text,
     )
     return {
         "id": row["id"],
@@ -262,6 +387,7 @@ def _compact_payload(
     *,
     published_at: str | None,
     include_article_text: bool = False,
+    relevance_text: str = "",
 ) -> Any:
     if (
         isinstance(payload, dict)
@@ -271,6 +397,8 @@ def _compact_payload(
         payload = {
             key: value for key, value in payload.items() if key != "article_text"
         }
+    elif isinstance(payload, dict) and include_article_text:
+        payload = _compact_article_payload(title, payload, relevance_text)
     if title in _OHLCV_LIMITS:
         return _compact_ohlcv(title, payload, published_at)
     if source == "Finnhub Financials As Reported":
@@ -278,6 +406,88 @@ def _compact_payload(
     if source == "Finnhub Basic Financials":
         return _compact_basic_financials(payload)
     return payload
+
+
+def _compact_article_payload(
+    title: str, payload: dict[str, Any], relevance_text: str
+) -> dict[str, Any]:
+    """Keep article metadata and only the most relevant body excerpts."""
+    article_text = payload.get("article_text")
+    if not isinstance(article_text, str):
+        return payload
+    excerpt = _article_excerpt(f"{title} {relevance_text}", article_text)
+    return {
+        **payload,
+        "article_text": excerpt,
+        "article_text_truncated": excerpt != article_text,
+    }
+
+
+def _article_excerpt(title: str, text: str) -> str:
+    paragraphs = [
+        part.strip() for part in re.split(r"(?<=[.!?。！？])\s+", text) if part.strip()
+    ]
+    if len(text) <= _ARTICLE_EXCERPT_CHARS:
+        return text
+    terms = set(re.findall(r"[\w\u4e00-\u9fff]{3,}", title.casefold()))
+    ranked = sorted(
+        enumerate(paragraphs),
+        key=lambda item: (
+            -sum(term in item[1].casefold() for term in terms),
+            item[0],
+        ),
+    )
+    chosen: list[str] = []
+    size = 0
+    for _, paragraph in ranked:
+        if size + len(paragraph) + 1 > _ARTICLE_EXCERPT_CHARS:
+            continue
+        chosen.append(paragraph)
+        size += len(paragraph) + 1
+        if size >= _ARTICLE_EXCERPT_CHARS * 0.8:
+            break
+    return " ".join(chosen)[:_ARTICLE_EXCERPT_CHARS].strip()
+
+
+def _limit_news_content_evidence(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    selected: list[sqlite3.Row] = []
+    token_count = 0
+    for row in evidence:
+        serialized = _serialize_evidence(row, include_article_text=True)
+        cost = _estimate_tokens(serialized)
+        if selected and token_count + cost > _NEWS_CONTENT_TOTAL_TOKEN_BUDGET:
+            break
+        selected.append(row)
+        token_count += cost
+    return selected
+
+
+def _news_content_batches(
+    evidence: list[sqlite3.Row], run: sqlite3.Row
+) -> list[list[dict[str, Any]]]:
+    terms = f"{run['symbol']} {run['question']}".casefold()
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_tokens = 0
+    for row in evidence:
+        item = _serialize_evidence(row, include_article_text=True, relevance_text=terms)
+        cost = _estimate_tokens(item)
+        if current and (
+            current_tokens + cost > _NEWS_CONTENT_BATCH_TOKEN_BUDGET
+            or len(current) >= _NEWS_CONTENT_MAX_ARTICLES_PER_BATCH
+        ):
+            batches.append(current)
+            current = []
+            current_tokens = 0
+        current.append(item)
+        current_tokens += cost
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _estimate_tokens(value: Any) -> int:
+    return max(1, (len(json.dumps(value, ensure_ascii=False)) + 3) // 4)
 
 
 def _compact_ohlcv(title: str, payload: Any, as_of: str | None) -> Any:
@@ -519,6 +729,7 @@ def news_content_summary_status(
 
 def _deduplicate_news(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
     seen: set[str] = set()
+    body_signatures: list[set[str]] = []
     result = []
     for row in sorted(
         evidence,
@@ -533,9 +744,36 @@ def _deduplicate_news(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
         )
         if key in seen:
             continue
+        body_signature = _news_body_signature(row)
+        if body_signature and any(
+            _signature_similarity(body_signature, previous) >= 0.85
+            for previous in body_signatures
+        ):
+            continue
         seen.add(key)
+        if body_signature:
+            body_signatures.append(body_signature)
         result.append(row)
     return sorted(result, key=lambda item: item["id"])
+
+
+def _news_body_signature(row: sqlite3.Row) -> set[str]:
+    payload = _payload(row)
+    if not isinstance(payload, dict):
+        return set()
+    text = payload.get("article_text")
+    if not isinstance(text, str):
+        return set()
+    words = re.findall(r"[\w\u4e00-\u9fff]+", text.casefold())
+    return {
+        " ".join(words[index : index + 5]) for index in range(max(0, len(words) - 4))
+    }
+
+
+def _signature_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
 
 
 def _normalized_news_title(title: str) -> str:

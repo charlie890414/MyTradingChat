@@ -119,6 +119,86 @@ def test_news_content_summary_rejects_prose_as_json_key():
         validate_news_content_summary(content)
 
 
+def test_news_content_summary_rejects_duplicate_evidence_after_batch_merge():
+    content = _news_summary_json(
+        article_summaries=[
+            {
+                "evidence_id": "EVID-0001",
+                "body_available": True,
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "First batch version.",
+                "materiality": "medium",
+            },
+            {
+                "evidence_id": "EVID-0001",
+                "body_available": True,
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "Second batch version.",
+                "materiality": "medium",
+            },
+        ]
+    )
+
+    with pytest.raises(ContextSummaryError, match="duplicated"):
+        validate_news_content_summary(content)
+
+
+def test_news_content_summary_accepts_merge_metadata_and_language_fields():
+    content = _news_summary_json(
+        merge_metadata={
+            "batch_count": 2,
+            "batch_numbers": [1, 2],
+            "unique_event_count": 1,
+        },
+        article_summaries=[
+            {
+                "evidence_id": "EVID-0001",
+                "related_evidence_ids": [],
+                "event_id": "EVENT-001",
+                "is_primary": True,
+                "source_language": "ja",
+                "body_available": True,
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "日文報導的繁體中文摘要。",
+                "materiality": "medium",
+            }
+        ],
+    )
+
+    summary = validate_news_content_summary(content)
+
+    assert summary["merge_metadata"]["batch_numbers"] == [1, 2]
+    assert summary["article_summaries"][0]["source_language"] == "ja"
+
+
+def test_news_content_summary_requires_one_primary_per_merged_event():
+    content = _news_summary_json(
+        merge_metadata={
+            "batch_count": 1,
+            "batch_numbers": [1],
+            "unique_event_count": 1,
+        },
+        article_summaries=[
+            {
+                "evidence_id": "EVID-0001",
+                "event_id": "EVENT-001",
+                "is_primary": False,
+                "body_available": True,
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "Related coverage.",
+                "materiality": "low",
+            }
+        ],
+    )
+
+    with pytest.raises(ContextSummaryError, match="exactly one primary"):
+        validate_news_content_summary(content)
+
+
 def _insert_contribution(
     db_path: Path,
     stage: str,
@@ -301,6 +381,68 @@ def test_news_content_context_isolated_from_following_news_analyst(tmp_path: Pat
     )
     assert "article_text" not in news_context["evidence"][0]["payload"]
     assert news_context["news_content_summary"]["actor"] == "news_content"
+
+
+def test_news_content_context_returns_bounded_batches_and_excerpts(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    for index in range(5):
+        _insert_evidence(
+            db_path,
+            "Google News RSS",
+            f"AAPL event {index}",
+            {
+                "summary": "Brief",
+                "article_text": (
+                    f"Distinct market detail {index}. " * 120
+                    + "Background discussion. " * 120
+                    + "Apple reports a material AAPL event. "
+                    + "Additional context. " * 120
+                ),
+            },
+            url=f"https://example.com/{index}",
+        )
+
+    run, evidence, contributions = _run_rows(db_path)
+    first = assemble_context(run, evidence, contributions, "news_content")
+    second = assemble_context(run, evidence, contributions, "news_content", batch=2)
+
+    assert first["news_content_batch"] == {"number": 1, "count": 2, "next": 2}
+    assert len(first["evidence"]) == 4
+    assert len(second["evidence"]) == 1
+    assert len(first["evidence"][0]["payload"]["article_text"]) <= 4_000
+    assert first["evidence"][0]["payload"]["article_text_truncated"] is True
+
+
+def test_news_context_deduplicates_near_identical_article_bodies(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    body = " ".join(
+        f"Apple announced product update detail {index} in Cupertino."
+        for index in range(20)
+    )
+    first_id = None
+    for index, suffix in enumerate((" First source.", " Second source.")):
+        evidence_id = _insert_evidence(
+            db_path,
+            "Google News RSS",
+            f"Different title {index}",
+            {"article_text": body + suffix},
+            url=f"https://example.com/near-duplicate-{index}",
+        )
+        first_id = first_id or evidence_id
+
+    _insert_contribution(
+        db_path,
+        "analysis",
+        "news_content",
+        _news_summary_json(evidence_ids=[first_id]),
+    )
+
+    run, evidence, contributions = _run_rows(db_path)
+    context = assemble_context(run, evidence, contributions, "news")
+
+    assert len(context["evidence"]) == 1
 
 
 def test_fundamental_context_semantically_compacts_finnhub_financials(

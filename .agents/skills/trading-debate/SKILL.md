@@ -117,6 +117,16 @@ Before spawning analysts, read [`references/analysis.md`](references/analysis.md
 uv run python -m trading_debate.cli context --run-id <run-id> --role news_content
 ```
 
+The first response contains one bounded article batch and `news_content_batch`.
+If its `count` is greater than one, fetch each remaining batch with
+`--batch <N>`. Each batch is an input shard, not an independent collection of
+events. Summarize shards independently, then perform one explicit merge pass
+before persisting the single required `news_content` machine-readable summary.
+The merge pass must use evidence IDs as immutable keys, remove duplicate records,
+group duplicate coverage by underlying event, retain unique facts from every
+source, and count each event once. This keeps any one agent request within the
+token budget without losing provenance.
+
 Give it only this context and the mandatory evidence rules. It must summarize the
 sanitized article bodies in Traditional Chinese, cite their existing evidence IDs,
 separate article facts from inference, distinguish article bodies from snippets, and

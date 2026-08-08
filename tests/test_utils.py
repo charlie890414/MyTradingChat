@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import trading_debate as td
-from trading_debate.utils import fetch_article_text, is_relevant_news
+from trading_debate.utils import (
+    fetch_article_text,
+    fetch_article_text_result,
+    is_relevant_news,
+)
 
 
 def test_is_relevant_news_requires_direct_company_reference():
@@ -18,6 +22,15 @@ def test_is_relevant_news_requires_direct_company_reference():
         company_name="Broadcom Inc.",
         title="Broadcom expands custom chip capacity",
         payload={"summary": "AVGO demand remains strong."},
+    )
+
+
+def test_is_relevant_news_supports_non_latin_company_names():
+    assert is_relevant_news(
+        symbol="AAPL",
+        company_name="アップル",
+        title="アップル、新製品を発表",
+        payload={"summary": "日本語のニュース本文です。"},
     )
 
 
@@ -36,7 +49,7 @@ def test_fetch_article_text_cleans_html_and_rejects_private_hosts():
             return None
 
         def read(self, size):
-            return b"<html><head><title>Ignore</title></head><body><article>Broadcom wins <b>custom-chip</b> order.</article><script>alert('ignore')</script></body></html>"
+            return "<html><head><title>Ignore</title></head><body><nav>Menu</nav><article>Broadcom wins <b>custom-chip</b> order. 日本語の補足。</article><footer>Recommended</footer><script>alert('ignore')</script></body></html>".encode()
 
     class Opener:
         def open(self, request, timeout):
@@ -53,7 +66,7 @@ def test_fetch_article_text_cleans_html_and_rejects_private_hosts():
         resolver=public_resolver,
         opener=Opener(),
     )
-    assert text == "Broadcom wins custom-chip order."
+    assert text == "Broadcom wins custom-chip order. 日本語の補足。"
     assert (
         fetch_article_text(
             "http://localhost/article",
@@ -68,6 +81,52 @@ def test_fetch_article_text_cleans_html_and_rejects_private_hosts():
         title="Qualcomm handset revenue contracts",
         payload={"summary": "AMD and Nvidia also reported results."},
     )
+
+
+@pytest.mark.parametrize(
+    ("content_length", "expected_state"),
+    [(300_000, "available"), (1_000_001, "failed")],
+)
+def test_fetch_article_text_allows_responses_up_to_one_megabyte(
+    content_length, expected_state
+):
+    class Response:
+        class Headers(dict):
+            def get_content_charset(self):
+                return "utf-8"
+
+        headers = Headers(
+            {"Content-Type": "text/html", "Content-Length": str(content_length)}
+        )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return b"<article>Relevant article body.</article>"
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    def public_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("93.184.216.34", 0))]
+
+    text, status = fetch_article_text_result(
+        "https://example.com/article",
+        resolver=public_resolver,
+        opener=Opener(),
+    )
+
+    assert status["state"] == expected_state
+    if expected_state == "available":
+        assert text == "Relevant article body."
+    else:
+        assert text is None
+        assert status["reason"] == "content_too_large"
 
 
 def test_utc_now_format():
@@ -98,7 +157,9 @@ def test_as_json_normalizes_non_finite_numbers():
 @pytest.mark.parametrize("value", [date(2026, 8, 9), datetime(2026, 8, 9, 12, 0)])
 def test_as_json_serializes_date_and_datetime(value):
     parsed = json.loads(td.as_json({"when": value}))
-    assert parsed == {"when": "2026-08-09T12:00:00" if isinstance(value, datetime) else "2026-08-09"}
+    assert parsed == {
+        "when": "2026-08-09T12:00:00" if isinstance(value, datetime) else "2026-08-09"
+    }
 
 
 def test_request_errors_redact_sensitive_query_values():
