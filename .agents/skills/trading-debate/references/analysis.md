@@ -53,19 +53,27 @@ machine-readable structure:
   "downside_risks": [],
   "evidence_gaps": [],
   "article_summaries": [
-    {
-      "evidence_id": "EVID-0001",
-      "body_available": true,
-      "event_date": "未知或 YYYY-MM-DD",
-      "summary": "可引用的事件摘要",
-      "materiality": "high|medium|low"
-    }
+   {
+     "evidence_id": "EVID-0001",
+     "body_available": true,
+     "event_date": "未知或 YYYY-MM-DD",
+     "source_quality": "high|medium|low",
+     "summary": "可引用的事件摘要",
+     "materiality": "high|medium|low"
+   }
   ]
 }
 ```
 
 Keep each article summary concise. Omit immaterial articles rather than reproducing
 their body text.
+
+The JSON must be syntactically valid. Every object property must use the exact
+`"key": value` form. Do not put explanatory prose, Markdown formatting, or a
+second field name inside a quoted key. Put all explanatory prose in the string
+value of `summary`. Include one `article_summaries` object for every retained
+evidence ID, and include each of those IDs in the top-level `evidence_ids` list.
+Before persisting the report, parse the block as JSON and correct any error.
 
 The `## Machine-readable summary` JSON block must be the absolute last element of
 the file. Do not append any note, footer, horizontal rule, or prose after the

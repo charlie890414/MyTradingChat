@@ -11,12 +11,18 @@ from typing import Any
 from uuid import uuid4
 
 from .connectors import CONNECTORS, fetch_yahoo
-from .context import CONTEXT_ROLES, ContextSummaryError, assemble_context
+from .context import (
+    CONTEXT_ROLES,
+    ContextSummaryError,
+    assemble_context,
+    validate_news_content_summary,
+)
 from .db import (
     CONFIDENCE_LEVELS,
     RATINGS,
     connect,
     delete_run,
+    evidence_reference,
     insert_evidence_items,
     normalize_contribution_actor,
     update_run_verdict,
@@ -455,6 +461,23 @@ def cmd_record(args: argparse.Namespace) -> None:
             actor = normalize_contribution_actor(args.stage, args.actor)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        if args.stage == "analysis" and actor == "news_content":
+            try:
+                summary = validate_news_content_summary(content.strip())
+            except ContextSummaryError as exc:
+                raise SystemExit(f"Invalid news content summary: {exc}") from exc
+            valid_ids = {
+                evidence_reference(row["id"])
+                for row in con.execute(
+                    "SELECT id FROM evidence WHERE run_id = ?", (args.run_id,)
+                ).fetchall()
+            }
+            unknown_ids = sorted(set(summary["evidence_ids"]) - valid_ids)
+            if unknown_ids:
+                raise SystemExit(
+                    "Invalid news content summary: unknown evidence IDs: "
+                    + ", ".join(unknown_ids)
+                )
         existing = _existing_contribution(
             con, args.run_id, args.stage, actor, args.round
         )

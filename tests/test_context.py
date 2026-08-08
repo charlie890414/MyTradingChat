@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 import trading_debate as td
-from trading_debate.context import ContextSummaryError, assemble_context
+from trading_debate.context import (
+    ContextSummaryError,
+    assemble_context,
+    validate_news_content_summary,
+)
 
 
 def _run_rows(db_path: Path):
@@ -79,6 +83,44 @@ def _summary(**overrides: object) -> str:
         + json.dumps(payload)
         + "\n```"
     )
+
+
+def _news_summary_json(**overrides: object) -> str:
+    payload = {
+        "actor": "news_content",
+        "stance": "neutral",
+        "confidence": "medium",
+        "evidence_ids": ["EVID-0001"],
+        "evidence_gaps": [],
+        "article_summaries": [
+            {
+                "evidence_id": "EVID-0001",
+                "body_available": True,
+                "event_date": "2026-08-08",
+                "source_quality": "high",
+                "summary": "A confirmed event.",
+                "materiality": "medium",
+            }
+        ],
+        **overrides,
+    }
+    return "## Machine-readable summary\n```json\n" + json.dumps(payload) + "\n```"
+
+
+def test_news_content_summary_validates_article_schema():
+    summary = validate_news_content_summary(_news_summary_json())
+
+    assert summary["article_summaries"][0]["evidence_id"] == "EVID-0001"
+
+
+def test_news_content_summary_rejects_prose_as_json_key():
+    content = _news_summary_json().replace(
+        '"materiality": "medium"',
+        '"materiality：**medium**；額外說明", "materiality": "medium"',
+    )
+
+    with pytest.raises(ContextSummaryError, match="line 11|Expecting ':'"):
+        validate_news_content_summary(content)
 
 
 def _insert_contribution(
@@ -241,7 +283,7 @@ def test_news_content_context_isolated_from_following_news_analyst(tmp_path: Pat
         db_path,
         "analysis",
         "news_content",
-        _summary(actor="news_content", evidence_ids=[evidence_id]),
+        _news_summary_json(evidence_ids=[evidence_id]),
     )
 
     run, evidence, contributions = _run_rows(db_path)

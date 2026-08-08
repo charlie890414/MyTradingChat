@@ -234,7 +234,8 @@ def test_detail_uses_news_content_summary_instead_of_raw_payload(tmp_path: Path)
                 '{"actor":"news_content","stance":"neutral","confidence":"medium",'
                 '"evidence_ids":["EVID-0002"],"evidence_gaps":[],"article_summaries":'
                 '[{"evidence_id":"EVID-0002","summary":"Readable event summary",'
-                '"body_available":true,"materiality":"high"}]}'
+                '"body_available":true,"event_date":"2026-08-08",'
+                '"source_quality":"high","materiality":"high"}]}'
                 "\n```",
                 td.utc_now(),
             ),
@@ -298,8 +299,9 @@ def test_detail_explains_missing_or_invalid_news_content_summary(tmp_path: Path)
         parts = con.execute("SELECT * FROM contributions ORDER BY id").fetchall()
 
     invalid = _detail_evidence(evidence, parts)[1]
-    assert invalid["news_summary_status"] == (
-        "新聞內文總結的 machine-readable summary 格式無效"
+    assert invalid["news_summary_status"].startswith("新聞內文總結格式無效：")
+    assert (
+        "missing Machine-readable summary JSON block" in invalid["news_summary_status"]
     )
 
 

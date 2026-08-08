@@ -68,6 +68,32 @@ def _record_all_analyses(db_path: Path) -> None:
         td.cmd_record(_record_args(db_path, actor=actor, content=f"{actor} report"))
 
 
+def test_cmd_record_rejects_invalid_news_content_summary(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _create_record_run(db_path)
+    content = (
+        "## Machine-readable summary\n```json\n"
+        '{"actor":"news_content","stance":"neutral",'
+        '"confidence":"medium","evidence_ids":["EVID-0001"],'
+        '"evidence_gaps":[],"article_summaries":[{'
+        '"evidence_id":"EVID-0001","body_available":true,'
+        '"event_date":"2026-08-08","source_quality":"high",'
+        '"summary":"event","materiality：**medium**；extra": "medium"}]}'
+        "\n```"
+    )
+
+    with pytest.raises(SystemExit, match="Invalid news content summary"):
+        td.cmd_record(_record_args(db_path, actor="news_content", content=content))
+
+    with td.connect(db_path) as con:
+        assert (
+            con.execute(
+                "SELECT COUNT(*) FROM contributions WHERE run_id = 'run-1'"
+            ).fetchone()[0]
+            == 0
+        )
+
+
 def test_cmd_init(tmp_path: Path):
     db_path = tmp_path / "test.db"
     args = MagicMock()

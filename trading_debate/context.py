@@ -105,6 +105,60 @@ def parse_machine_summary(content: str) -> dict[str, Any]:
     return summary
 
 
+def validate_news_content_summary(content: str) -> dict[str, Any]:
+    """Validate the structured handoff produced by the news summarizer."""
+    summary = parse_machine_summary(content)
+    if summary.get("actor") != "news_content":
+        raise ContextSummaryError("news content summary actor must be news_content")
+    if summary.get("stance") != "neutral":
+        raise ContextSummaryError("news content summary stance must be neutral")
+    if summary.get("confidence") not in {"low", "medium", "high"}:
+        raise ContextSummaryError(
+            "news content summary confidence is missing or invalid"
+        )
+    if not isinstance(summary.get("evidence_gaps"), list):
+        raise ContextSummaryError("news content summary evidence_gaps must be a list")
+    _validate_summary_evidence_ids(summary)
+
+    article_summaries = summary.get("article_summaries")
+    if not isinstance(article_summaries, list) or not article_summaries:
+        raise ContextSummaryError(
+            "news content summary article_summaries must be a non-empty list"
+        )
+    evidence_ids = set(summary["evidence_ids"])
+    for index, item in enumerate(article_summaries):
+        prefix = f"article_summaries[{index}]"
+        if not isinstance(item, dict):
+            raise ContextSummaryError(f"{prefix} must be a JSON object")
+        evidence_id = item.get("evidence_id")
+        if not isinstance(evidence_id, str) or not _EVIDENCE_ID_RE.fullmatch(
+            evidence_id
+        ):
+            raise ContextSummaryError(f"{prefix}.evidence_id must be an evidence ID")
+        if evidence_id not in evidence_ids:
+            raise ContextSummaryError(
+                f"{prefix}.evidence_id must also appear in evidence_ids"
+            )
+        if not isinstance(item.get("body_available"), bool):
+            raise ContextSummaryError(f"{prefix}.body_available must be a boolean")
+        if not isinstance(item.get("event_date"), str):
+            raise ContextSummaryError(f"{prefix}.event_date must be a string")
+        if not isinstance(item.get("summary"), str) or not item["summary"].strip():
+            raise ContextSummaryError(f"{prefix}.summary must be a non-empty string")
+        if item.get("materiality") not in {"high", "medium", "low"}:
+            raise ContextSummaryError(
+                f"{prefix}.materiality must be high, medium, or low"
+            )
+        if (
+            not isinstance(item.get("source_quality"), str)
+            or not item["source_quality"].strip()
+        ):
+            raise ContextSummaryError(
+                f"{prefix}.source_quality must be a non-empty string"
+            )
+    return summary
+
+
 def assemble_context(
     run: sqlite3.Row,
     evidence: list[sqlite3.Row],
@@ -422,7 +476,7 @@ def _latest_news_content_summary(
     for row in reversed(contributions):
         if row["stage"] == "analysis" and row["actor"] == "news_content":
             try:
-                return parse_machine_summary(row["content"])
+                return validate_news_content_summary(row["content"])
             except ContextSummaryError:
                 return None
     return None
@@ -451,11 +505,9 @@ def news_content_summary_status(
     if not contribution:
         return {}, "尚未產生新聞內文總結"
     try:
-        summary = parse_machine_summary(contribution["content"])
-    except ContextSummaryError:
-        return {}, "新聞內文總結的 machine-readable summary 格式無效"
-    if not isinstance(summary.get("article_summaries"), list):
-        return {}, "新聞內文總結未提供文章摘要"
+        summary = validate_news_content_summary(contribution["content"])
+    except ContextSummaryError as exc:
+        return {}, f"新聞內文總結格式無效：{exc}"
     summaries = {
         item["evidence_id"]: item
         for item in summary["article_summaries"]
