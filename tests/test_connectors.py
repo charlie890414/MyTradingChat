@@ -388,6 +388,8 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
     requested_urls = [call.args[0] for call in mock_request.call_args_list]
     assert not any("stock/revenue-estimate" in url for url in requested_urls)
     assert not any("stock/eps-estimate" in url for url in requested_urls)
+    assert "stock/price-target" in requested_urls
+    assert "price-target" not in requested_urls
 
 
 @patch("trading_debate.connectors.finnhub.os.getenv")
