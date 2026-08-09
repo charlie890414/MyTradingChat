@@ -115,10 +115,17 @@ def _enrich_news_with_article_text(
     )
     unique_candidates = candidates
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(fetch_article_text_result, item.url): item
-            for item in unique_candidates
-        }
+        futures = {}
+        for item in unique_candidates:
+            payload = item.payload if isinstance(item.payload, dict) else {}
+            rss_content = payload.get("content_encoded")
+            if rss_content:
+                future = executor.submit(
+                    fetch_article_text_result, item.url, rss_content=rss_content
+                )
+            else:
+                future = executor.submit(fetch_article_text_result, item.url)
+            futures[future] = item
         for future, item in futures.items():
             try:
                 article_text, status = future.result()

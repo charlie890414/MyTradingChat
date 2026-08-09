@@ -257,7 +257,9 @@ def test_fetch_google_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
                 {
                     "title": "Unimicron expands capacity",
                     "link": "https://example.com/1",
-                    "published": datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                    "published": datetime.now(UTC).strftime(
+                        "%a, %d %b %Y %H:%M:%S GMT"
+                    ),
                     "summary": "",
                     "source": {"title": "Reuters", "href": "https://reuters.com"},
                 }
@@ -314,7 +316,9 @@ def test_fetch_bing_news_uses_company_name_for_taiwan_symbol(mock_feedparser):
                 {
                     "title": "Unimicron raises guidance",
                     "link": "https://example.com/1",
-                    "published": datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT"),
+                    "published": datetime.now(UTC).strftime(
+                        "%a, %d %b %Y %H:%M:%S GMT"
+                    ),
                     "summary": "",
                 }
             ]
@@ -388,7 +392,7 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
     requested_urls = [call.args[0] for call in mock_request.call_args_list]
     assert not any("stock/revenue-estimate" in url for url in requested_urls)
     assert not any("stock/eps-estimate" in url for url in requested_urls)
-    assert "stock/price-target" in requested_urls
+    assert any("stock/price-target" in url for url in requested_urls)
     assert "price-target" not in requested_urls
 
 

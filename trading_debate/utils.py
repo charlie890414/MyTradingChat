@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from dotenv import load_dotenv
@@ -257,6 +257,55 @@ class _ArticleTextParser(HTMLParser):
             self.parts.append(data)
 
 
+class _ArticleMetadataParser(HTMLParser):
+    """Collect safe, publisher-provided article alternate locations."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.canonical_url: str | None = None
+        self.amp_url: str | None = None
+        self.print_url: str | None = None
+        self.json_ld: list[str] = []
+        self._in_json_ld = False
+        self._json_ld_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {key.casefold(): value or "" for key, value in attrs}
+        if tag.casefold() == "link":
+            rel = {value.casefold() for value in attributes.get("rel", "").split()}
+            href = attributes.get("href")
+            if not href:
+                return
+            if "canonical" in rel and self.canonical_url is None:
+                self.canonical_url = href
+            elif "amphtml" in rel and self.amp_url is None:
+                self.amp_url = href
+            elif (
+                "alternate" in rel
+                and attributes.get("media", "").casefold() == "print"
+                and self.print_url is None
+            ):
+                self.print_url = href
+        elif (
+            tag.casefold() == "script"
+            and attributes.get("type", "").casefold() == "application/ld+json"
+        ):
+            self._in_json_ld = True
+            self._json_ld_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.casefold() == "script" and self._in_json_ld:
+            value = "".join(self._json_ld_parts).strip()
+            if value:
+                self.json_ld.append(value)
+            self._in_json_ld = False
+            self._json_ld_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._in_json_ld:
+            self._json_ld_parts.append(data)
+
+
 def _extract_article_text(html: str, url: str) -> tuple[str | None, str]:
     """Extract article text from already-downloaded HTML with a safe fallback."""
     try:
@@ -289,22 +338,89 @@ def _extract_article_text(html: str, url: str) -> tuple[str | None, str]:
     return (text or None), "html_parser_fallback"
 
 
-def fetch_article_text_result(
+def _article_metadata(html: str, base_url: str) -> _ArticleMetadataParser:
+    parser = _ArticleMetadataParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except (UnicodeError, ValueError):
+        return parser
+    for attribute in ("canonical_url", "amp_url", "print_url"):
+        value = getattr(parser, attribute)
+        if value:
+            setattr(parser, attribute, urljoin(base_url, value))
+    return parser
+
+
+def _json_ld_article_body(values: list[str]) -> str | None:
+    def find_body(value: Any) -> str | None:
+        if isinstance(value, dict):
+            body = value.get("articleBody")
+            if isinstance(body, str) and body.strip():
+                return body
+            for child in value.values():
+                found = find_body(child)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                found = find_body(child)
+                if found:
+                    return found
+        return None
+
+    for raw in values:
+        try:
+            body = find_body(json.loads(raw))
+        except (TypeError, ValueError):
+            continue
+        if body:
+            parser = _ArticleTextParser()
+            try:
+                parser.feed(body)
+                parser.close()
+            except (UnicodeError, ValueError):
+                continue
+            text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+            if text:
+                return text
+    return None
+
+
+def _rss_content_text(content: Any) -> str | None:
+    if isinstance(content, dict):
+        return _rss_content_text(content.get("value") or content.get("content"))
+    if isinstance(content, list):
+        for item in content:
+            text = _rss_content_text(item)
+            if text:
+                return text
+        return None
+    if not isinstance(content, str) or not content.strip():
+        return None
+    parser = _ArticleTextParser()
+    try:
+        parser.feed(content)
+        parser.close()
+    except (UnicodeError, ValueError):
+        return None
+    text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+    return text or None
+
+
+def _fetch_article_html(
     url: str,
     *,
-    timeout: float = 5.0,
-    max_bytes: int = _ARTICLE_MAX_BYTES,
-    max_chars: int = _ARTICLE_MAX_CHARS,
-    resolver: Any = socket.getaddrinfo,
-    opener: Any | None = None,
+    timeout: float,
+    max_bytes: int,
+    resolver: Any,
+    opener: Any,
 ) -> tuple[str | None, dict[str, str]]:
-    """Fetch article text and return a machine-readable outcome."""
     if not _is_public_article_url(url, resolver):
         return None, {"state": "failed", "reason": "unsafe_url"}
     request = Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "text/html"})
-    article_opener = opener or build_opener(_SafeArticleRedirectHandler(resolver))
     try:
-        with article_opener.open(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             content_type = str(response.headers.get("Content-Type", "")).casefold()
             if "text/html" not in content_type:
                 return None, {
@@ -314,14 +430,12 @@ def fetch_article_text_result(
                 }
             content_length = response.headers.get("Content-Length")
             if content_length and int(content_length) > max_bytes:
-                return None, {
-                    "state": "failed",
-                    "reason": "content_too_large",
-                }
+                return None, {"state": "failed", "reason": "content_too_large"}
             content = response.read(max_bytes + 1)
             if len(content) > max_bytes:
                 return None, {"state": "failed", "reason": "content_too_large"}
             charset = response.headers.get_content_charset() or "utf-8"
+            final_url = getattr(response, "geturl", lambda: url)() or url
     except HTTPError as exc:
         return None, {
             "state": "failed",
@@ -334,11 +448,112 @@ def fetch_article_text_result(
             "reason": "transport_or_decode_error",
             "detail": str(exc)[:200],
         }
-    html = content.decode(charset, errors="replace")
-    text, extractor = _extract_article_text(html, url)
-    if not text:
-        return None, {"state": "failed", "reason": "empty_article_body"}
-    return text[:max_chars], {"state": "available", "extractor": extractor}
+    return content.decode(charset, errors="replace"), {
+        "state": "available",
+        "final_url": final_url,
+    }
+
+
+def fetch_article_text_result(
+    url: str,
+    *,
+    timeout: float = 5.0,
+    max_bytes: int = _ARTICLE_MAX_BYTES,
+    max_chars: int = _ARTICLE_MAX_CHARS,
+    resolver: Any = socket.getaddrinfo,
+    opener: Any | None = None,
+    rss_content: Any | None = None,
+) -> tuple[str | None, dict[str, str]]:
+    """Fetch article text using canonical, structured, alternate, then RSS fallbacks."""
+    article_opener = opener or build_opener(_SafeArticleRedirectHandler(resolver))
+    html, status = _fetch_article_html(
+        url,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        resolver=resolver,
+        opener=article_opener,
+    )
+    if html is None:
+        initial_status = status
+        html = ""
+    else:
+        initial_status = status
+
+    metadata = _article_metadata(html, url) if html else _ArticleMetadataParser()
+    pages: list[tuple[str, str]] = [(url, html)] if html else []
+    canonical = metadata.canonical_url
+    if canonical and canonical != url:
+        canonical_html, canonical_status = _fetch_article_html(
+            canonical,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            resolver=resolver,
+            opener=article_opener,
+        )
+        if canonical_html:
+            pages.insert(0, (canonical, canonical_html))
+            canonical_metadata = _article_metadata(canonical_html, canonical)
+            metadata.canonical_url = canonical_metadata.canonical_url or canonical
+            metadata.amp_url = canonical_metadata.amp_url or metadata.amp_url
+            metadata.print_url = canonical_metadata.print_url or metadata.print_url
+            metadata.json_ld = canonical_metadata.json_ld + metadata.json_ld
+        elif not html:
+            initial_status = canonical_status
+
+    for page_url, page_html in pages:
+        text, extractor = _extract_article_text(page_html, page_url)
+        if text:
+            return text[:max_chars], {
+                "state": "available",
+                "extractor": extractor,
+                "method": "canonical_url" if page_url == canonical else "direct",
+                "url": page_url,
+            }
+
+    for page_url, page_html in pages:
+        text = _json_ld_article_body(_article_metadata(page_html, page_url).json_ld)
+        if text:
+            return text[:max_chars], {
+                "state": "available",
+                "extractor": "json_ld",
+                "method": "json_ld",
+                "url": page_url,
+            }
+
+    alternate_urls = [metadata.amp_url, metadata.print_url]
+    for method, alternate_url in zip(("amp", "print"), alternate_urls, strict=True):
+        if not alternate_url:
+            continue
+        alternate_html, alternate_status = _fetch_article_html(
+            alternate_url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            resolver=resolver,
+            opener=article_opener,
+        )
+        if not alternate_html:
+            initial_status = alternate_status
+            continue
+        text, extractor = _extract_article_text(alternate_html, alternate_url)
+        if text:
+            return text[:max_chars], {
+                "state": "available",
+                "extractor": extractor,
+                "method": method,
+                "url": alternate_url,
+            }
+
+    rss_text = _rss_content_text(rss_content)
+    if rss_text:
+        return rss_text[:max_chars], {
+            "state": "available",
+            "extractor": "html_parser_fallback",
+            "method": "rss_content_encoded",
+            "url": url,
+        }
+    if initial_status.get("state") == "available":
+        initial_status = {"state": "failed", "reason": "empty_article_body"}
+    return None, initial_status
 
 
 def fetch_article_text(

@@ -130,6 +130,137 @@ def test_fetch_article_text_allows_responses_up_to_eight_megabytes(
         assert status["reason"] == "content_too_large"
 
 
+def test_fetch_article_text_uses_canonical_then_amp_and_print_fallbacks():
+    pages = {
+        "https://example.com/article": (
+            '<link rel="canonical" href="/canonical">'
+            '<link rel="amphtml" href="/article/amp">'
+            '<link rel="alternate" media="print" href="/article/print">'
+        ),
+        "https://example.com/canonical": "<html><body></body></html>",
+        "https://example.com/article/amp": "<html><body></body></html>",
+        "https://example.com/article/print": "<article>Print edition body.</article>",
+    }
+    calls = []
+
+    class Response:
+        class Headers(dict):
+            def get_content_charset(self):
+                return "utf-8"
+
+        headers = Headers({"Content-Type": "text/html"})
+
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return self.body.encode()
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(request.full_url)
+            return Response(pages[request.full_url])
+
+    def public_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("93.184.216.34", 0))]
+
+    text, status = fetch_article_text_result(
+        "https://example.com/article",
+        resolver=public_resolver,
+        opener=Opener(),
+    )
+
+    assert text == "Print edition body."
+    assert status["method"] == "print"
+    assert calls == [
+        "https://example.com/article",
+        "https://example.com/canonical",
+        "https://example.com/article/amp",
+        "https://example.com/article/print",
+    ]
+
+
+def test_fetch_article_text_uses_json_ld_before_alternate_pages():
+    html = (
+        '<script type="application/ld+json">'
+        '{"@type":"NewsArticle","articleBody":"Structured article body."}'
+        '</script><link rel="amphtml" href="/amp">'
+    )
+
+    class Response:
+        class Headers(dict):
+            def get_content_charset(self):
+                return "utf-8"
+
+        headers = Headers({"Content-Type": "text/html"})
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return html.encode()
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    def public_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("93.184.216.34", 0))]
+
+    text, status = fetch_article_text_result(
+        "https://example.com/article",
+        resolver=public_resolver,
+        opener=Opener(),
+    )
+
+    assert text == "Structured article body."
+    assert status["method"] == "json_ld"
+
+
+def test_fetch_article_text_uses_rss_content_encoded_last():
+    class Response:
+        class Headers(dict):
+            def get_content_charset(self):
+                return "utf-8"
+
+        headers = Headers({"Content-Type": "text/html"})
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return b"<html><body></body></html>"
+
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+
+    def public_resolver(*args, **kwargs):
+        return [(None, None, None, None, ("93.184.216.34", 0))]
+
+    text, status = fetch_article_text_result(
+        "https://example.com/article",
+        resolver=public_resolver,
+        opener=Opener(),
+        rss_content="<p>RSS encoded body.</p>",
+    )
+
+    assert text == "RSS encoded body."
+    assert status["method"] == "rss_content_encoded"
+
+
 def test_utc_now_format():
     result = td.utc_now()
     parsed = datetime.fromisoformat(result)

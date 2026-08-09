@@ -39,17 +39,28 @@ def fetch_bing_news(
         parsed_published_at = _parse_rss_date(published_at)
         if not is_recent_news(parsed_published_at):
             continue
+        content_encoded = next(
+            (
+                value.get("value")
+                for value in entry.get("content", [])
+                if isinstance(value, dict) and value.get("value")
+            ),
+            None,
+        )
+        payload = {
+            "title": entry.get("title", ""),
+            "link": entry.get("link", ""),
+            "published": published_at,
+            "summary": entry.get("summary", ""),
+        }
+        if content_encoded:
+            payload["content_encoded"] = content_encoded
         items.append(
             EvidenceItem(
                 run_id=run_id,
                 source="Bing News RSS",
                 title=entry.get("title", "Untitled"),
-                payload={
-                    "title": entry.get("title", ""),
-                    "link": entry.get("link", ""),
-                    "published": published_at,
-                    "summary": entry.get("summary", ""),
-                },
+                payload=payload,
                 url=entry.get("link"),
                 published_at=parsed_published_at,
             )
