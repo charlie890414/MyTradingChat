@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ import pandas as pd
 from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
+from trading_debate.connectors.fred import fetch_fred
 from trading_debate.connectors.google_news import fetch_google_news
 from trading_debate.connectors.market import (
     fetch_official_market_data,
@@ -23,6 +25,47 @@ from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
 
 from .conftest import make_history
+
+
+def test_fetch_fred_skips_without_api_key():
+    with patch.dict(os.environ, {}, clear=True):
+        items = fetch_fred("run-1", "AAPL", 10)
+
+    assert len(items) == 1
+    assert items[0].source == "FRED"
+    assert items[0].payload["state"] == "skipped"
+
+
+@patch("trading_debate.connectors.fred.request_json")
+def test_fetch_fred_returns_snapshots_and_isolates_series_errors(mock_request_json):
+    def response(url, params):
+        assert url == "https://api.stlouisfed.org/fred/series/observations"
+        if params["series_id"] == "DGS2":
+            raise RuntimeError("rate limited")
+        return {
+            "observations": [
+                {"date": "2026-08-10", "value": "4.25"},
+                {"date": "2026-08-07", "value": "4.00"},
+            ]
+        }
+
+    mock_request_json.side_effect = response
+    with patch.dict(os.environ, {"FRED_API_KEY": "test-key"}, clear=True):
+        items = fetch_fred("run-1", "AAPL", 10)
+
+    federal_funds = next(
+        item for item in items if item.payload.get("series_id") == "FEDFUNDS"
+    )
+    two_year_error = next(
+        item
+        for item in items
+        if item.payload.get("series_id") == "DGS2" and item.payload["state"] == "error"
+    )
+    assert federal_funds.title == "Macroeconomic series: Federal Funds Rate"
+    assert federal_funds.payload["latest"] == {"date": "2026-08-10", "value": 4.25}
+    assert federal_funds.payload["change"] == 0.25
+    assert federal_funds.published_at == "2026-08-10"
+    assert two_year_error.payload["detail"] == "rate limited"
 
 
 def test_fetch_yahoo_returns_result_with_items():

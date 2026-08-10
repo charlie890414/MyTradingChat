@@ -562,6 +562,7 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
                 "margin purchase",
                 "short sale",
                 "securities lending",
+                "macroeconomic",
             )
         )
         or price_snapshot

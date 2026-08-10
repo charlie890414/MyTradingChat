@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import yfinance  # noqa: F401  exposed at module level so tests can patch
 
-from .connectors import CONNECTORS, fetch_official_market_data, fetch_yahoo
+from .connectors import CONNECTORS, fetch_fred, fetch_official_market_data, fetch_yahoo
 from .connectors.technicals import compute_technicals, history_to_records
 from .symbols import (
     normalize_symbol,
@@ -16,6 +16,7 @@ __all__ = [
     "CONNECTORS",
     "compute_technicals",
     "fetch_official_market_data",
+    "fetch_fred",
     "fetch_yahoo",
     "history_to_records",
     "normalize_symbol",

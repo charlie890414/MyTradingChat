@@ -1,6 +1,6 @@
 # MyTradingChat
 
-Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and generates Markdown reports from that persisted data.
+Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, FRED, and SEC EDGAR for evidence, SQLite for durable history, and generates Markdown reports from that persisted data.
 
 Open this repository with an agent workflow and ask, for example: `分析 NVDA的多空觀點，並提供買入/持有/減碼的投資建議與目標價格`.
 
@@ -17,6 +17,7 @@ Optional connectors are enabled only when their credentials exist in the environ
 ```shell
 $env:FINNHUB_API_KEY = "..."
 $env:FINMIND_TOKEN = "..."
+$env:FRED_API_KEY = "..."
 $env:SEC_USER_AGENT = "MyTradingChat/0.1 research@example.com"
 ```
 
@@ -25,6 +26,12 @@ evidence pack includes analyst recommendation history, company news, reported
 financials, and
 historical earnings surprises.  Provider-plan restrictions and empty responses
 are recorded as evidence gaps, never as investment evidence.
+
+`FRED_API_KEY` enables the free Federal Reserve Economic Data connector. It
+provides the latest observations and period-over-period changes for policy rates,
+Treasury yields, the yield curve, credit spreads, VIX, inflation, unemployment,
+and the broad US dollar index. These are macroeconomic context, not company-level
+evidence; unavailable series are recorded as evidence gaps.
 
 For US tickers, the SEC EDGAR connector also parses non-derivative Form 4
 filings into individual insider transactions and retains bounded excerpts from

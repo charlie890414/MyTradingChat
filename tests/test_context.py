@@ -105,6 +105,22 @@ def test_fundamentals_context_prefers_official_equivalent_evidence(tmp_path: Pat
     ]
 
 
+def test_fundamentals_context_includes_fred_macroeconomic_evidence(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    _insert_evidence(
+        db_path,
+        "FRED",
+        "Macroeconomic series: Federal Funds Rate",
+        {"series_id": "FEDFUNDS", "latest": {"date": "2026-08-10", "value": 5}},
+    )
+    run, evidence, contributions = _run_rows(db_path)
+
+    context = assemble_context(run, evidence, contributions, "fundamentals")
+
+    assert [item["source"] for item in context["evidence"]] == ["FRED"]
+
+
 def _news_summary_json(**overrides: object) -> str:
     payload = {
         "actor": "news_content",
