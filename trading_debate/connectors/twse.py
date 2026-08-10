@@ -58,6 +58,10 @@ _STATEMENT_ENDPOINTS = {
             "MOPS income statement (general)",
             "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_ci",
         ),
+        (
+            "MOPS income statement (miscellaneous)",
+            "https://openapi.twse.com.tw/v1/opendata/t187ap06_L_mim",
+        ),
     ],
     "Balance sheet": [
         (
@@ -79,6 +83,10 @@ _STATEMENT_ENDPOINTS = {
         (
             "MOPS balance sheet (general)",
             "https://openapi.twse.com.tw/v1/opendata/t187ap07_L_ci",
+        ),
+        (
+            "MOPS balance sheet (miscellaneous)",
+            "https://openapi.twse.com.tw/v1/opendata/t187ap07_L_mim",
         ),
     ],
 }
@@ -105,6 +113,10 @@ _TPEX_STATEMENT_ENDPOINTS = {
             "TPEX MOPS income statement (general)",
             "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_ci",
         ),
+        (
+            "TPEX MOPS income statement (miscellaneous)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap06_O_mim",
+        ),
     ],
     "Balance sheet": [
         (
@@ -126,6 +138,10 @@ _TPEX_STATEMENT_ENDPOINTS = {
         (
             "TPEX MOPS balance sheet (general)",
             "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_ci",
+        ),
+        (
+            "TPEX MOPS balance sheet (miscellaneous)",
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap07_O_mim",
         ),
     ],
 }

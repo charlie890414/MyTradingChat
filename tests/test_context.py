@@ -353,6 +353,35 @@ def test_role_context_excludes_irrelevant_evidence_and_status_items(tmp_path: Pa
     assert all("payload_json" not in item for item in fundamental["evidence"])
 
 
+def test_official_market_evidence_reaches_fundamentals_and_sentiment(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    _insert_evidence(
+        db_path,
+        "TWSE/TPEX Official Market Data",
+        "Official profitability analysis",
+        {"record": {"毛利率": "58"}},
+    )
+    _insert_evidence(
+        db_path,
+        "TWSE/TPEX Official Market Data",
+        "Official securities lending short-sale balance",
+        {"record": {"借券賣出當日餘額": "10"}},
+    )
+
+    run, evidence, contributions = _run_rows(db_path)
+    fundamentals = assemble_context(run, evidence, contributions, "fundamentals")
+    sentiment = assemble_context(run, evidence, contributions, "sentiment")
+
+    assert {item["title"] for item in fundamentals["evidence"]} == {
+        "Official profitability analysis",
+        "Official securities lending short-sale balance",
+    }
+    assert {item["title"] for item in sentiment["evidence"]} == {
+        "Official securities lending short-sale balance"
+    }
+
+
 def test_news_context_deduplicates_canonical_url_and_title(tmp_path: Path):
     db_path = tmp_path / "test.db"
     _setup_run(db_path)

@@ -9,7 +9,7 @@ from .bing_news import fetch_bing_news
 from .finmind import fetch_finmind
 from .finnhub import fetch_finnhub
 from .google_news import fetch_google_news
-from .market import fetch_official_valuation_data
+from .market import fetch_official_market_data, fetch_official_valuation_data
 from .mops import fetch_mops_documents
 from .sec import fetch_sec
 from .twse import fetch_twse_mops
@@ -38,6 +38,7 @@ CONNECTORS: dict[str, Connector] = {
     "TWSE OpenAPI / MOPS": fetch_twse_mops,
     "MOPS Official Documents": fetch_mops_documents,
     "TWSE Official Valuation Data": fetch_official_valuation_data,
+    "TWSE/TPEX Official Market Data": fetch_official_market_data,
 }
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "fetch_finmind",
     "fetch_google_news",
     "fetch_mops_documents",
+    "fetch_official_market_data",
     "fetch_official_valuation_data",
     "fetch_sec",
     "fetch_twse_mops",

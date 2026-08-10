@@ -13,7 +13,10 @@ from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
 from trading_debate.connectors.google_news import fetch_google_news
-from trading_debate.connectors.market import fetch_official_valuation_data
+from trading_debate.connectors.market import (
+    fetch_official_market_data,
+    fetch_official_valuation_data,
+)
 from trading_debate.connectors.mops import _extract_pdf_text, fetch_mops_documents
 from trading_debate.connectors.sec import fetch_sec
 from trading_debate.connectors.twse import fetch_twse_mops
@@ -720,6 +723,67 @@ def test_fetch_official_valuation_data_returns_twse_snapshot(mock_request):
     assert items[0].payload["dataset"] == "BWIBBU_ALL"
     assert items[0].payload["record"]["PEratio"] == "20"
     assert items[0].published_at == "1150805"
+
+
+@patch("trading_debate.connectors.market.request_json")
+def test_fetch_official_market_data_returns_twse_records(mock_request):
+    def response(url):
+        if "t187ap17" in url:
+            return [{"公司代號": "2330", "毛利率": "58.0", "年度": "115"}]
+        if "t187ap45" in url:
+            return [{"公司代號": "2330", "現金股利總額": "100", "年度": "115"}]
+        if "MI_MARGN" in url:
+            return [{"股票代號": "2330", "融資今日餘額": "10", "Date": "1150805"}]
+        return [{"Code": "2330", "Date": "1150805"}]
+
+    mock_request.side_effect = response
+
+    items = fetch_official_market_data("run-1", "2330.TW", 10)
+
+    assert {item.payload["dataset"] for item in items} == {
+        "valuation",
+        "profitability",
+        "dividend",
+        "ex_right",
+        "margin",
+        "securities_lending",
+    }
+    assert all(item.payload["market"] == "twse" for item in items)
+    assert all(item.source == "TWSE/TPEX Official Market Data" for item in items)
+    assert any("TWT96U" in call.args[0] for call in mock_request.call_args_list)
+
+
+@patch("trading_debate.connectors.market.request_json")
+def test_fetch_official_market_data_routes_tpex_and_matches_tpex_code(mock_request):
+    def response(url):
+        if "tpex_3insti_qfii" in url:
+            return [{"SecuritiesCompanyCode": "6488", "外資持股比率": "12"}]
+        if "tpex_margin_sbl" in url:
+            return [
+                {
+                    "TWSECode": "2330",
+                    "GRETAICode": "6488",
+                    "借券賣出當日餘額": "30",
+                }
+            ]
+        return [{"SecuritiesCompanyCode": "6488", "Date": "1150805"}]
+
+    mock_request.side_effect = response
+
+    items = fetch_official_market_data("run-1", "6488.TWO", 10)
+
+    assert len(items) == 10
+    assert {item.payload["market"] for item in items} == {"tpex"}
+    assert "foreign_ownership" in {item.payload["dataset"] for item in items}
+    assert "securities_lending_balance" in {item.payload["dataset"] for item in items}
+    assert all("www.tpex.org.tw" in item.url for item in items)
+
+
+def test_fetch_official_market_data_skips_non_taiwan_symbol():
+    items = fetch_official_market_data("run-1", "AAPL", 10)
+
+    assert len(items) == 1
+    assert items[0].title == "Connector skipped"
 
 
 @patch("trading_debate.connectors.mops.request_text", return_value="")

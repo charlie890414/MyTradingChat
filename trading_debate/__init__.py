@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .connectors import CONNECTORS, fetch_yahoo
+from .connectors import CONNECTORS, fetch_official_market_data, fetch_yahoo
 from .connectors.technicals import compute_technicals, history_to_records
 from .db import (
     connect,
@@ -51,6 +51,7 @@ __all__ = [
     "connector_status",
     "evidence_reference",
     "date_range_days",
+    "fetch_official_market_data",
     "fetch_yahoo",
     "history_to_records",
     "is_recent_news",

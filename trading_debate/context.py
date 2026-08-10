@@ -517,6 +517,9 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
                 "institutional",
                 "margin purchase",
                 "short sale",
+                "institutional investor",
+                "foreign ownership",
+                "securities lending",
                 "insider",
                 "form 4",
             )
@@ -539,6 +542,14 @@ def _matches_role(row: sqlite3.Row, role: str) -> bool:
                 "company profile",
                 "mops attachment",
                 "official valuation",
+                "profitability",
+                "dividend distribution",
+                "ex-right",
+                "foreign ownership",
+                "institutional investor",
+                "margin purchase",
+                "short sale",
+                "securities lending",
             )
         )
         or price_snapshot

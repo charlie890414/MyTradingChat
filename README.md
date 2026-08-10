@@ -44,11 +44,15 @@ trading-debate context --run-id $run.run_id --role fundamentals
 
 Taiwan research prioritizes public MOPS, TWSE, and TPEX data: company profiles,
 material announcements, monthly revenue, available income statements and
-balance sheets, and valuation snapshots. FinMind is a convenient supplementary
-source for cash flow, ownership flows, and standardized time series; it does
-not replace official disclosures, and material conclusions should be checked
-against the official source. `FINMIND_TOKEN` is therefore not required for the
-official Taiwan connectors.
+balance sheets, valuation snapshots, profitability, dividend decisions,
+ex-right/ex-dividend events, and market microstructure data. Official market
+data covers the available market-specific institutional flows, foreign ownership,
+margin balances, and securities-lending fields; source availability differs
+between TWSE and TPEX. FinMind is a convenient supplementary source for cash
+flow, ownership flows, and standardized time series; it does not replace
+official disclosures, and material conclusions should be checked against the
+official source. `FINMIND_TOKEN` is therefore not required for the official
+Taiwan connectors.
 
 MOPS announcements retain their original disclosure page and any public PDF
 links. Text from readable PDFs is stored as evidence. Scanned or encrypted PDFs,
