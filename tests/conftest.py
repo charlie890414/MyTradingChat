@@ -119,6 +119,6 @@ def empty_connectors():
 def no_taiwan_company_network():
     """Prevent tests from hitting TWSE/TPEX APIs for Chinese company names."""
     with patch(
-        "trading_debate.cli.fetch_taiwan_company_name", return_value=None
+        "trading_debate.cli.fetch_taiwan_company_profile", return_value=None
     ) as mock_name:
         yield mock_name

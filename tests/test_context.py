@@ -81,6 +81,30 @@ def _summary(**overrides: object) -> str:
     return json.dumps(payload)
 
 
+def test_fundamentals_context_prefers_official_equivalent_evidence(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    _setup_run(db_path)
+    _insert_evidence(
+        db_path,
+        "FinMind TaiwanStockFinancialStatements",
+        "Latest consolidated income statement",
+        {"dataset": "TaiwanStockFinancialStatements"},
+    )
+    _insert_evidence(
+        db_path,
+        "TWSE/TPEX Official Financial Statements",
+        "Official Income statement: Example",
+        {"revenue": 100},
+    )
+    run, evidence, contributions = _run_rows(db_path)
+
+    context = assemble_context(run, evidence, contributions, "fundamentals")
+
+    assert [item["source"] for item in context["evidence"]] == [
+        "TWSE/TPEX Official Financial Statements"
+    ]
+
+
 def _news_summary_json(**overrides: object) -> str:
     payload = {
         "actor": "news_content",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 from xml.etree import ElementTree
 
@@ -13,6 +14,9 @@ from ..utils import request_json, request_text
 _COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 _COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+_MAX_FILING_METADATA = 5
+_MAX_FILING_BODIES = 3
+_MAX_FILING_TEXT_CHARS = 6_000
 
 _FACTS = {
     "Revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues"],
@@ -170,12 +174,22 @@ def _form4_transactions(xml_text: str) -> list[dict[str, Any]]:
     return transactions
 
 
+def _filing_excerpt(document: str) -> str:
+    """Create a bounded plain-text excerpt without treating filing HTML as trusted."""
+    without_scripts = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", " ", document, flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(r"<[^>]+>", " ", without_scripts)
+    return " ".join(text.split())[:_MAX_FILING_TEXT_CHARS]
+
+
 def fetch_sec(
     run_id: str, symbol: str, limit: int, *, company_name: str | None = None
 ) -> list[EvidenceItem]:
     if taiwan_code(symbol):
         return [_status(run_id, "skipped", "SEC EDGAR only supports US tickers.")]
 
+    del limit, company_name
     try:
         resolved = _resolve_cik(symbol)
     except Exception as exc:
@@ -218,7 +232,9 @@ def fetch_sec(
 
     try:
         submissions = request_json(_SUBMISSIONS_URL.format(cik=cik), headers=_headers())
-        filing_rows = _recent_filings(submissions, {"10-K", "10-Q", "8-K"}, limit)
+        filing_rows = _recent_filings(
+            submissions, {"10-K", "10-Q", "8-K"}, _MAX_FILING_METADATA
+        )
         if filing_rows:
             items.append(
                 EvidenceItem(
@@ -230,7 +246,34 @@ def fetch_sec(
                     published_at=filing_rows[0].get("filingDate"),
                 )
             )
-        form4_rows = _recent_filings(submissions, {"4"}, limit)
+            for filing in filing_rows[:_MAX_FILING_BODIES]:
+                url = filing.get("url")
+                if not url:
+                    continue
+                try:
+                    excerpt = _filing_excerpt(request_text(url, _headers()))
+                    state = "available" if excerpt else "empty"
+                    detail = None if excerpt else "Filing document contained no text."
+                except Exception as exc:
+                    excerpt = ""
+                    state = "error"
+                    detail = str(exc)
+                items.append(
+                    EvidenceItem(
+                        run_id=run_id,
+                        source="SEC EDGAR Filing",
+                        title=f"{filing['form']} filing excerpt",
+                        payload={
+                            "cik": cik,
+                            "filing": filing,
+                            "text": excerpt,
+                            "extraction_status": {"state": state, "detail": detail},
+                        },
+                        url=url,
+                        published_at=filing.get("filingDate"),
+                    )
+                )
+        form4_rows = _recent_filings(submissions, {"4"}, _MAX_FILING_METADATA)
         if form4_rows:
             transactions: list[dict[str, Any]] = []
             fetch_errors: list[str] = []

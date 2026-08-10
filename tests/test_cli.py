@@ -266,10 +266,15 @@ def test_cmd_fetch_valid_run(tmp_path: Path, capsys, empty_connectors):
         evidence_batch_ids = con.execute(
             "SELECT DISTINCT batch_id FROM evidence WHERE run_id = 'run-1'"
         ).fetchall()
+        telemetry = con.execute(
+            "SELECT payload_json FROM evidence WHERE run_id = 'run-1' "
+            "AND source = 'Yahoo Finance' AND title = 'Connector available'"
+        ).fetchone()
     assert batch["status"] == "completed"
     assert batch["resolved_symbol"] == "AAPL"
     assert len(evidence_batch_ids) == 1
     assert evidence_batch_ids[0]["batch_id"]
+    assert json.loads(telemetry["payload_json"])["metrics"]["discovered"] > 0
     captured = capsys.readouterr()
     parsed = json.loads(captured.out.strip())
     assert parsed["run_id"] == "run-1"
@@ -392,6 +397,27 @@ def test_article_text_attempts_every_url_and_records_failures():
         "reason": "timeout",
     }
     assert items[12].payload["article_text_status"]["state"] == "available"
+
+
+def test_article_text_fetches_a_shared_url_once():
+    items = [
+        EvidenceItem(
+            run_id="run-1",
+            source=source,
+            title="Apple update",
+            payload={},
+            url="https://example.com/story?source=rss",
+        )
+        for source in ("Google News RSS", "Bing News RSS")
+    ]
+    with patch(
+        "trading_debate.cli.fetch_article_text_result",
+        return_value=("Apple update body", {"state": "available"}),
+    ) as mocked:
+        _enrich_news_with_article_text(items, "AAPL", "Apple Inc.")
+
+    assert mocked.call_count == 1
+    assert all(item.payload["article_text"] == "Apple update body" for item in items)
 
 
 def test_cmd_fetch_updates_symbol_on_resolution(
@@ -749,7 +775,14 @@ def test_cmd_fetch_uses_chinese_company_name_for_taiwan_stock(
     args.run_id = "run-1"
     args.news_limit = 10
 
-    with patch("trading_debate.cli.fetch_taiwan_company_name", return_value="欣興電子"):
+    with patch(
+        "trading_debate.cli.fetch_taiwan_company_profile",
+        return_value=(
+            "欣興電子",
+            {"公司名稱": "欣興電子"},
+            "https://example.com/profile",
+        ),
+    ):
         with patch(
             "trading_debate.connectors.yahoo.yfinance.Ticker", return_value=mock_ticker
         ):

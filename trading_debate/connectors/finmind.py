@@ -89,6 +89,7 @@ _DATASETS = {
         "compact": True,
     },
 }
+_NON_NEWS_ROW_LIMIT = 10
 
 
 def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
@@ -100,9 +101,7 @@ def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
     )
 
 
-def _fetch_dataset(
-    dataset: str, code: str, headers: dict[str, str], limit: int
-) -> dict[str, Any]:
+def _fetch_dataset(dataset: str, code: str, headers: dict[str, str]) -> dict[str, Any]:
     config = _DATASETS[dataset]
     start, end = date_range_days(int(config["days"]))
     params: dict[str, Any] = {
@@ -247,8 +246,10 @@ def fetch_finmind(
 
     result: list[EvidenceItem] = []
     for dataset, config in _DATASETS.items():
+        if dataset == "TaiwanStockNews" and limit == 0:
+            continue
         try:
-            data = _fetch_dataset(dataset, code, headers, limit)
+            data = _fetch_dataset(dataset, code, headers)
         except Exception as exc:
             result.append(
                 _status(run_id, "error", f"{dataset} failed for {code}: {exc}")
@@ -279,7 +280,8 @@ def fetch_finmind(
             continue
 
         source = str(config["source"])
-        for row in rows[-limit:]:
+        row_limit = limit if dataset == "TaiwanStockNews" else _NON_NEWS_ROW_LIMIT
+        for row in rows[-row_limit:]:
             title = (
                 row.get("title")
                 or row.get("headline")

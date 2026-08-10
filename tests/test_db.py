@@ -57,6 +57,48 @@ def test_current_evidence_uses_latest_completed_batch(tmp_path: Path):
         assert [row["title"] for row in current_evidence(con, "run-1")] == ["New"]
 
 
+def test_syndicated_news_keeps_provenance_and_best_article_body(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES ('run-1', 'AAPL', 'Test', 1, ?, 'active')",
+            (td.utc_now(),),
+        )
+        create_evidence_batch(con, "batch-1", "run-1", "AAPL")
+        first = EvidenceItem(
+            "run-1",
+            "Google News RSS",
+            "Apple earnings",
+            {"article_text_status": {"state": "failed"}},
+            url="https://example.com/apple",
+            published_at="2026-08-01",
+        )
+        second = EvidenceItem(
+            "run-1",
+            "Bing News RSS",
+            "Apple earnings",
+            {
+                "article_text": "Apple reported quarterly results.",
+                "article_text_status": {"state": "available"},
+            },
+            url="https://another.example/apple",
+            published_at="2026-08-01",
+        )
+        td.insert_evidence_items(con, [first, second], batch_id="batch-1")
+        finish_evidence_batch(con, "batch-1", status="completed")
+        rows = current_evidence(con, "run-1")
+
+    assert len(rows) == 1
+    payload = json.loads(rows[0]["payload_json"])
+    assert payload["article_text"] == "Apple reported quarterly results."
+    assert payload["related_sources"] == ["Bing News RSS", "Google News RSS"]
+    assert payload["related_urls"] == [
+        "https://another.example/apple",
+        "https://example.com/apple",
+    ]
+
+
 def test_connect_creates_directories(tmp_path: Path):
     db_path = tmp_path / "nested" / "dir" / "test.db"
     con = td.connect(db_path)
@@ -170,7 +212,14 @@ def test_insert_evidence_items_deduplicates_syndicated_news(tmp_path: Path):
     rows = con.execute("SELECT source, payload_json FROM evidence").fetchall()
     assert len(rows) == 1
     assert rows[0]["source"] == "Yahoo Finance News"
-    assert json.loads(rows[0]["payload_json"]) == {"summary": "Yahoo copy"}
+    assert json.loads(rows[0]["payload_json"]) == {
+        "summary": "Yahoo copy",
+        "related_sources": ["Finnhub Company News", "Yahoo Finance News"],
+        "related_urls": [
+            "https://finance.example.com/apple?utm_source=yahoo",
+            "https://finnhub.example.com/article/123",
+        ],
+    }
     con.close()
 
 

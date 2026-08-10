@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 from .connectors import CONNECTORS, fetch_yahoo
@@ -37,7 +38,7 @@ from .db import (
 from .models import EvidenceItem, YahooFetchResult
 from .render import cmd_export, cmd_render
 from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo_symbol
-from .taiwan_names import fetch_taiwan_company_name
+from .taiwan_names import fetch_taiwan_company_profile
 from .utils import (
     as_json,
     fetch_article_text_result,
@@ -56,13 +57,18 @@ _MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
 
 
 def _connector_status_item(
-    run_id: str, source: str, state: str, detail: str
+    run_id: str,
+    source: str,
+    state: str,
+    detail: str,
+    *,
+    metrics: dict[str, int] | None = None,
 ) -> EvidenceItem:
     return EvidenceItem(
         run_id=run_id,
         source=source,
         title=f"Connector {state}",
-        payload={"state": state, "detail": detail},
+        payload={"state": state, "detail": detail, "metrics": metrics or {}},
     )
 
 
@@ -113,10 +119,19 @@ def _enrich_news_with_article_text(
             )
         )
     )
-    unique_candidates = candidates
+    # RSS and syndicated feeds frequently point to the same publisher URL. Fetch
+    # it once, then copy the result to every evidence item that references it.
+    grouped_candidates: dict[str, list[EvidenceItem]] = {}
+    for item in candidates:
+        parts = urlsplit(str(item.url))
+        key = urlunsplit(
+            (parts.scheme.lower(), parts.netloc.lower(), parts.path, "", "")
+        )
+        grouped_candidates.setdefault(key, []).append(item)
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
         futures = {}
-        for item in unique_candidates:
+        for grouped_items in grouped_candidates.values():
+            item = grouped_items[0]
             payload = item.payload if isinstance(item.payload, dict) else {}
             rss_content = payload.get("content_encoded")
             if rss_content:
@@ -125,17 +140,18 @@ def _enrich_news_with_article_text(
                 )
             else:
                 future = executor.submit(fetch_article_text_result, item.url)
-            futures[future] = item
-        for future, item in futures.items():
+            futures[future] = grouped_items
+        for future, grouped_items in futures.items():
             try:
                 article_text, status = future.result()
             except Exception as exc:  # pragma: no cover - defensive provider boundary
                 article_text = None
                 status = {"state": "failed", "detail": str(exc)}
-            payload = item.payload if isinstance(item.payload, dict) else {}
-            item.payload = {**payload, "article_text_status": status}
-            if article_text:
-                item.payload["article_text"] = article_text
+            for item in grouped_items:
+                payload = item.payload if isinstance(item.payload, dict) else {}
+                item.payload = {**payload, "article_text_status": status}
+                if article_text:
+                    item.payload["article_text"] = article_text
     return items
 
 
@@ -234,8 +250,10 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
     connector_items: dict[str, int] = {}
     connector_errors: dict[str, str] = {}
     connector_results: list[EvidenceItem] = []
+    connector_result_items: dict[str, list[EvidenceItem]] = {}
     try:
-        chinese_name = fetch_taiwan_company_name(symbol)
+        taiwan_profile = fetch_taiwan_company_profile(symbol)
+        chinese_name = taiwan_profile[0] if taiwan_profile else None
     except Exception as exc:  # pragma: no cover - defensive provider boundary
         chinese_name = None
         connector_errors["Taiwan company name"] = str(exc)
@@ -244,6 +262,18 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
                 args.run_id, "Taiwan company name", "error", str(exc)
             )
         )
+    else:
+        if taiwan_profile:
+            _, profile, url = taiwan_profile
+            yahoo_items.append(
+                EvidenceItem(
+                    run_id=args.run_id,
+                    source="TWSE/TPEX Official Company Profile",
+                    title="Official company profile",
+                    payload=profile,
+                    url=url,
+                )
+            )
     company_name = (
         company_search_name(symbol, fetched.fundamentals, chinese_name=chinese_name)
         if fetched
@@ -268,11 +298,13 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
             try:
                 items, error = future.result()
                 connector_results.extend(items)
+                connector_result_items[name] = items
                 connector_items[name] = len(items)
                 if error:
                     connector_errors[name] = error
             except Exception as exc:  # pragma: no cover - defensive
                 connector_errors[name] = str(exc)
+                connector_result_items[name] = []
 
     evidence_items = _enrich_news_with_article_text(
         yahoo_items + connector_results, symbol, company_name
@@ -285,6 +317,34 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
                 connector_errors.setdefault(
                     item.source, str(item.payload.get("detail", ""))
                 )
+    source_items = {
+        "Yahoo Finance": yahoo_items,
+        **connector_result_items,
+    }
+    for name, items in source_items.items():
+        discovered = len(items)
+        retained = sum(item in evidence_items for item in items)
+        bodies_available = sum(
+            isinstance(item.payload, dict)
+            and isinstance(item.payload.get("article_text_status"), dict)
+            and item.payload["article_text_status"].get("state") == "available"
+            for item in items
+        )
+        errors = sum(item.title.startswith("Connector error") for item in items)
+        evidence_items.append(
+            _connector_status_item(
+                args.run_id,
+                name,
+                "error" if errors else "available",
+                "Connector fetch metrics.",
+                metrics={
+                    "discovered": discovered,
+                    "retained": retained,
+                    "article_bodies_available": bodies_available,
+                    "errors": errors,
+                },
+            )
+        )
     batch_status = "partial" if yahoo_error or connector_errors else "completed"
     batch_error = (
         "; ".join(

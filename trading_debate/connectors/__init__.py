@@ -39,7 +39,6 @@ CONNECTORS: dict[str, Connector] = {
     "FinMind": fetch_finmind,
     "TWSE OpenAPI / MOPS": fetch_twse_mops,
     "MOPS Official Documents": fetch_mops_documents,
-    "TWSE Official Valuation Data": fetch_official_valuation_data,
     "TWSE/TPEX Official Market Data": fetch_official_market_data,
 }
 

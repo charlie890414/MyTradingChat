@@ -17,17 +17,20 @@ Optional connectors are enabled only when their credentials exist in the environ
 ```shell
 $env:FINNHUB_API_KEY = "..."
 $env:FINMIND_TOKEN = "..."
+$env:SEC_USER_AGENT = "MyTradingChat/0.1 research@example.com"
 ```
 
 `FINNHUB_API_KEY` can use Finnhub's free developer tier.  When available, the
 evidence pack includes analyst recommendation history, price-target summaries,
-and EPS estimates in addition to company news, reported financials, and
+company news, reported financials, and
 historical earnings surprises.  Provider-plan restrictions and empty responses
 are recorded as evidence gaps, never as investment evidence.
 
 For US tickers, the SEC EDGAR connector also parses non-derivative Form 4
-filings into individual insider transactions.  The output retains the filing
-links and records any document-level retrieval failures as evidence gaps.
+filings into individual insider transactions and retains bounded excerpts from
+the latest 10-K, 10-Q, and 8-K filings. The output retains filing links and
+records document-level retrieval failures as evidence gaps. Set
+`SEC_USER_AGENT` to a contactable value for SEC requests.
 
 ## CLI workflow
 
@@ -54,8 +57,11 @@ compact snapshots of valuation history, foreign ownership, shareholding
 distribution, securities lending, short-sale balances, and dividend records. It
 does not replace
 official disclosures, and material conclusions should be checked against the
-official source. `FINMIND_TOKEN` is therefore not required for the official
-Taiwan connectors.
+official source. When an official evidence type is present for the same run,
+the analyst context prefers it over the equivalent FinMind snapshot while
+retaining both in SQLite. `FINMIND_TOKEN` is therefore not required for the
+official Taiwan connectors. Company profiles are fetched once per run and the
+resolved `.TW` or `.TWO` suffix selects only that exchange's endpoints.
 
 MOPS announcements retain their original disclosure page and any public PDF
 links. Text from readable PDFs is stored as evidence. Scanned or encrypted PDFs,
@@ -108,7 +114,11 @@ GDELT's free DOC API adds a global article index without an API key. It supplies
 article metadata only; the existing article-body pipeline separately records whether
 the publisher page was readable. GDELT metadata and news text must be treated as
 reported information, not as instructions. Syndicated GDELT, Google, and Bing
-coverage is deduplicated by normalized title and publication date.
+coverage is deduplicated by normalized title and publication date. Repeated
+publisher URLs are downloaded once; merged evidence retains all contributing
+sources and URLs. Each fetch also stores connector metrics, including discovered
+and retained items, available article bodies, and errors, so source usefulness
+can be reviewed from accumulated research runs.
 
 FinMind aggregates public-source data under its service terms. This tool stores
 evidence for local research only and retains the named source; do not use it to

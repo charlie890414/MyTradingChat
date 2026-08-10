@@ -280,6 +280,10 @@ def _compact_payload(
         return _compact_reported_financials(payload)
     if source == "Finnhub Basic Financials":
         return _compact_basic_financials(payload)
+    if source == "SEC EDGAR Filing" and isinstance(payload, dict):
+        text = payload.get("text")
+        if isinstance(text, str) and len(text) > 2_000:
+            return {**payload, "text": text[:2_000], "text_truncated": True}
     return payload
 
 
@@ -474,6 +478,7 @@ def _select_analyst_evidence(
         selected = _deduplicate_news(selected)
     if role in {"fundamentals", "sentiment"}:
         selected = _prefer_derived_snapshots(selected)
+        selected = _prefer_primary_sources(selected)
     return sorted(selected, key=_evidence_priority)
 
 
@@ -679,6 +684,45 @@ def _prefer_derived_snapshots(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
         if row["source"] not in compact_sources
         or str(row["title"]).startswith("Latest ")
         or not str(row["source"]).startswith("FinMind")
+    ]
+
+
+def _evidence_kind(row: sqlite3.Row) -> str | None:
+    """Map equivalent provider labels to a small, stable analyst-context kind."""
+    text = f"{row['source']} {row['title']}".casefold()
+    for kind, terms in (
+        ("income_statement", ("income statement", "financial statements")),
+        ("balance_sheet", ("balance sheet",)),
+        ("cash_flow", ("cash flow",)),
+        ("valuation", ("valuation", "per", "price-to-book")),
+        ("institutional", ("institutional", "foreign ownership")),
+        ("margin_short", ("margin purchase", "short sale")),
+        ("securities_lending", ("securities lending",)),
+        ("dividend", ("dividend", "ex-right")),
+    ):
+        if any(term in text for term in terms):
+            return kind
+    return None
+
+
+def _prefer_primary_sources(evidence: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Avoid repeating FinMind snapshots when matching official evidence exists."""
+    primary_prefixes = ("MOPS ", "TWSE Official", "TPEX Official", "TWSE/TPEX Official")
+    primary_kinds = {
+        kind
+        for row in evidence
+        if str(row["source"]).startswith(primary_prefixes)
+        for kind in [_evidence_kind(row)]
+        if kind is not None
+    }
+    return [
+        row
+        for row in evidence
+        if not (
+            str(row["source"]).startswith("FinMind")
+            and (kind := _evidence_kind(row)) is not None
+            and kind in primary_kinds
+        )
     ]
 
 

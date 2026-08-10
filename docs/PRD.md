@@ -167,10 +167,11 @@ Supported sources:
 1. Yahoo Finance
 2. Google News RSS
 3. Bing News RSS
-4. Finnhub
-5. SEC EDGAR
-6. FinMind
-7. TWSE OpenAPI / MOPS
+4. GDELT News
+5. Finnhub
+6. SEC EDGAR
+7. FinMind
+8. TWSE/TPEX OpenAPI, MOPS, and official market data
 
 Requirements:
 
@@ -182,6 +183,10 @@ Requirements:
 6. Optional connectors without credentials must be recorded as skipped.
 7. Evidence must be written to the SQLite `evidence` table.
 8. Evidence items should upsert by run, source, and deduplication key.
+9. Each connector must persist availability and quality metrics as status metadata.
+10. Taiwan profile lookup runs once; resolved `.TW` and `.TWO` symbols query only
+    the corresponding exchange endpoint family.
+11. SEC filing excerpts must be bounded and retain their source URL and extraction status.
 
 ### 7.5 Evidence Pack
 

@@ -370,7 +370,10 @@ def insert_evidence_items(
     unique_items: dict[str, EvidenceItem] = {}
     for item in items:
         if is_news_source(item.source):
-            unique_items.setdefault(item.dedup_key, item)
+            existing = unique_items.get(item.dedup_key)
+            unique_items[item.dedup_key] = (
+                _merge_news_items(existing, item) if existing else item
+            )
         else:
             unique_items[item.dedup_key] = item
     rows = [
@@ -403,6 +406,50 @@ def insert_evidence_items(
         """,
         rows,
     )
+
+
+def _merge_news_items(existing: EvidenceItem, candidate: EvidenceItem) -> EvidenceItem:
+    """Keep syndicated-news provenance while selecting the most useful record."""
+    existing_payload = existing.payload if isinstance(existing.payload, dict) else {}
+    candidate_payload = candidate.payload if isinstance(candidate.payload, dict) else {}
+    urls = {
+        str(url)
+        for url in (
+            existing.url,
+            candidate.url,
+            *existing_payload.get("related_urls", []),
+            *candidate_payload.get("related_urls", []),
+        )
+        if isinstance(url, str) and url
+    }
+    sources = {
+        str(source)
+        for source in (
+            existing.source,
+            candidate.source,
+            *existing_payload.get("related_sources", []),
+            *candidate_payload.get("related_sources", []),
+        )
+        if isinstance(source, str) and source
+    }
+
+    def score(item: EvidenceItem) -> tuple[int, int]:
+        payload = item.payload if isinstance(item.payload, dict) else {}
+        status = payload.get("article_text_status")
+        body = payload.get("article_text")
+        return (
+            int(isinstance(status, dict) and status.get("state") == "available"),
+            len(body) if isinstance(body, str) else 0,
+        )
+
+    selected = candidate if score(candidate) > score(existing) else existing
+    payload = selected.payload if isinstance(selected.payload, dict) else {}
+    selected.payload = {
+        **payload,
+        "related_sources": sorted(sources),
+        "related_urls": sorted(urls),
+    }
+    return selected
 
 
 def connector_status(

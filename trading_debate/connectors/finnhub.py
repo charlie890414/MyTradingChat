@@ -10,12 +10,17 @@ from ..symbols import taiwan_code
 from ..utils import NEWS_MAX_AGE_DAYS, date_range_days, is_recent_news, request_json
 
 
-def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
+def _status(
+    run_id: str, state: str, detail: str, *, operation: str | None = None
+) -> EvidenceItem:
+    title = f"Connector {state}"
+    if operation:
+        title = f"{title}: {operation}"
     return EvidenceItem(
         run_id=run_id,
         source="Finnhub",
-        title=f"Connector {state}",
-        payload={"state": state, "detail": detail},
+        title=title,
+        payload={"state": state, "detail": detail, "operation": operation},
     )
 
 
@@ -61,7 +66,11 @@ def fetch_finnhub(
             if news_count >= limit:
                 break
     except Exception as exc:
-        result.append(_status(run_id, "error", f"Company news failed: {exc}"))
+        result.append(
+            _status(
+                run_id, "error", f"Company news failed: {exc}", operation="company-news"
+            )
+        )
 
     for metric in ("all",):
         try:
@@ -80,7 +89,14 @@ def fetch_finnhub(
                 )
             )
         except Exception as exc:
-            result.append(_status(run_id, "error", f"Basic financials failed: {exc}"))
+            result.append(
+                _status(
+                    run_id,
+                    "error",
+                    f"Basic financials failed: {exc}",
+                    operation="stock-metric",
+                )
+            )
 
     try:
         earnings = _request_finnhub("stock/earnings", {"symbol": symbol, "token": key})
@@ -98,7 +114,11 @@ def fetch_finnhub(
                 )
             )
     except Exception as exc:
-        result.append(_status(run_id, "error", f"Earnings failed: {exc}"))
+        result.append(
+            _status(
+                run_id, "error", f"Earnings failed: {exc}", operation="stock-earnings"
+            )
+        )
 
     estimate_endpoints = (
         (
@@ -118,7 +138,14 @@ def fetch_finnhub(
             if isinstance(payload, dict) and payload.get("error"):
                 raise RuntimeError(payload["error"])
             if not payload:
-                result.append(_status(run_id, "empty", f"{title} returned no data."))
+                result.append(
+                    _status(
+                        run_id,
+                        "empty",
+                        f"{title} returned no data.",
+                        operation=endpoint,
+                    )
+                )
                 continue
             result.append(
                 EvidenceItem(
@@ -129,7 +156,9 @@ def fetch_finnhub(
                 )
             )
         except Exception as exc:
-            result.append(_status(run_id, "error", f"{title} failed: {exc}"))
+            result.append(
+                _status(run_id, "error", f"{title} failed: {exc}", operation=endpoint)
+            )
 
     try:
         reported = _request_finnhub(
@@ -150,6 +179,13 @@ def fetch_finnhub(
                 )
             )
     except Exception as exc:
-        result.append(_status(run_id, "error", f"Financials as reported failed: {exc}"))
+        result.append(
+            _status(
+                run_id,
+                "error",
+                f"Financials as reported failed: {exc}",
+                operation="stock-financials-reported",
+            )
+        )
 
     return result

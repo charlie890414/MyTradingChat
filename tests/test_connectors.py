@@ -455,6 +455,12 @@ def test_fetch_finnhub_returns_skipped_status_when_key_missing(mock_getenv):
     assert items[0].title == "Connector skipped"
 
 
+def test_active_connectors_do_not_register_valuation_twice():
+    from trading_debate.connectors import CONNECTORS
+
+    assert "TWSE Official Valuation Data" not in CONNECTORS
+
+
 @patch("trading_debate.connectors.finmind.os.getenv")
 @patch("trading_debate.connectors.finmind.request_json")
 def test_fetch_finmind_returns_items_for_taiwan_code(mock_request, mock_getenv):
@@ -648,6 +654,19 @@ def test_fetch_finmind_taiwan_stock_news_uses_single_day(mock_request, mock_gete
 
 @patch("trading_debate.connectors.finmind.os.getenv")
 @patch("trading_debate.connectors.finmind.request_json")
+def test_fetch_finmind_news_limit_zero_skips_only_news(mock_request, mock_getenv):
+    mock_getenv.return_value = None
+    mock_request.return_value = {"status": 200, "data": []}
+
+    fetch_finmind("run-1", "2330.TW", 0)
+
+    datasets = [call.args[1]["dataset"] for call in mock_request.call_args_list]
+    assert "TaiwanStockNews" not in datasets
+    assert "TaiwanStockFinancialStatements" in datasets
+
+
+@patch("trading_debate.connectors.finmind.os.getenv")
+@patch("trading_debate.connectors.finmind.request_json")
 def test_fetch_finmind_other_datasets_include_end_date(mock_request, mock_getenv):
     mock_getenv.return_value = "fake-token"
     mock_request.return_value = {"status": 200, "data": []}
@@ -663,16 +682,17 @@ def test_fetch_finmind_other_datasets_include_end_date(mock_request, mock_getenv
 
 
 @patch("trading_debate.connectors.twse.request_json")
-def test_fetch_twse_mops_returns_profile_for_taiwan_code(mock_request):
+def test_fetch_twse_mops_uses_only_the_resolved_market_for_taiwan_code(mock_request):
     mock_request.return_value = [
         {"公司代號": "2330", "公司名稱": "TSMC", "產業別": "半導體"}
     ]
     items = fetch_twse_mops("run-1", "2330.TW", 0)
-    assert any(item.source == "TWSE/TPEX Official Company Profile" for item in items)
+    assert any(item.source == "TWSE/TPEX Monthly Revenue" for item in items)
     assert any(item.title.startswith("Official Income statement") for item in items)
     assert any(item.title.startswith("Official Balance sheet") for item in items)
     requested_urls = [call.args[0] for call in mock_request.call_args_list]
     assert not any("t187ap04" in url for url in requested_urls)
+    assert not any("tpex.org.tw" in url for url in requested_urls)
 
 
 @patch("trading_debate.connectors.twse.request_json")
@@ -745,6 +765,9 @@ def test_fetch_sec_returns_company_facts_and_filings(mock_request, mock_request_
     items = fetch_sec("run-1", "AAPL", 10)
     assert any(item.source == "SEC EDGAR Company Facts" for item in items)
     assert any(item.source == "SEC EDGAR Submissions" for item in items)
+    filing = next(item for item in items if item.source == "SEC EDGAR Filing")
+    assert filing.title == "10-K filing excerpt"
+    assert filing.payload["extraction_status"]["state"] == "available"
     assert any(item.source == "SEC EDGAR Form 4" for item in items)
     form4 = next(item for item in items if item.source == "SEC EDGAR Form 4")
     assert form4.payload["transactions"][0]["owner"] == "Jane Doe"

@@ -18,8 +18,8 @@ from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
 from trading_debate.connectors.google_news import fetch_google_news
 from trading_debate.connectors.sec import fetch_sec
-from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
+from trading_debate.taiwan_names import fetch_taiwan_company_profile
 from trading_debate.utils import is_recent_news
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -54,14 +54,11 @@ def test_fetch_yahoo_live_returns_real_market_data():
     assert result.technicals["as_of"] is not None, "Expected computed technicals"
 
 
-def test_fetch_twse_mops_live_returns_real_profile():
-    items = fetch_twse_mops("test-live", "1101", 0)
-    profile_items = [
-        item for item in items if item.source == "TWSE/TPEX Official Company Profile"
-    ]
-    assert profile_items
-    assert profile_items[0].title == "Official company profile"
-    assert str(profile_items[0].payload.get("公司代號", "")).strip() == "1101"
+def test_fetch_taiwan_company_profile_live_returns_real_profile():
+    profile = fetch_taiwan_company_profile("1101.TW")
+    assert profile
+    _, row, _ = profile
+    assert str(row.get("公司代號", "")).strip() == "1101"
 
 
 def test_fetch_finmind_live_returns_real_taiwan_news_or_empty_list():

@@ -2,26 +2,12 @@
 
 from __future__ import annotations
 
-import ssl
 from collections.abc import Iterable
 from typing import Any
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
 from ..utils import request_json
-
-_UNVERIFIED_CTX = ssl._create_unverified_context()
-
-_PROFILE_ENDPOINTS = [
-    (
-        "TWSE listed-company profile",
-        "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
-    ),
-    (
-        "TPEX company profile",
-        "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
-    ),
-]
 
 _MONTHLY_REVENUE_ENDPOINTS = [
     (
@@ -177,7 +163,7 @@ def _matching_rows(
 
 
 def _fetch_endpoint(url: str) -> list[dict[str, Any]]:
-    records = request_json(url, ssl_context=_UNVERIFIED_CTX)
+    records = request_json(url)
     return records if isinstance(records, list) else []
 
 
@@ -274,15 +260,16 @@ def fetch_twse_mops(
         detail = "Official disclosures are only queried for Taiwan ticker codes."
         return [_status(run_id, "skipped", detail)]
 
-    cap = limit or 10
+    del limit, company_name
+    cap = 10
+    market = "tpex" if symbol.upper().endswith(".TWO") else "twse"
     items: list[EvidenceItem] = []
     for endpoint_group, source, title_prefix in (
         (
-            _PROFILE_ENDPOINTS,
-            "TWSE/TPEX Official Company Profile",
-            "Official company profile",
+            [_MONTHLY_REVENUE_ENDPOINTS[0 if market == "twse" else 1]],
+            "TWSE/TPEX Monthly Revenue",
+            "Monthly revenue",
         ),
-        (_MONTHLY_REVENUE_ENDPOINTS, "TWSE/TPEX Monthly Revenue", "Monthly revenue"),
     ):
         group_items = _items_from_endpoint_group(
             run_id, code, endpoint_group, source, title_prefix, cap
@@ -295,13 +282,8 @@ def fetch_twse_mops(
             continue
         items.extend(group_items)
 
-    for statement_name, endpoints in _STATEMENT_ENDPOINTS.items():
-        statement_items = _fetch_statement(run_id, code, statement_name, endpoints, cap)
-        if statement_items and statement_items[0].title.startswith("Connector"):
-            continue
-        items.extend(statement_items)
-
-    for statement_name, endpoints in _TPEX_STATEMENT_ENDPOINTS.items():
+    statements = _TPEX_STATEMENT_ENDPOINTS if market == "tpex" else _STATEMENT_ENDPOINTS
+    for statement_name, endpoints in statements.items():
         statement_items = _fetch_statement(run_id, code, statement_name, endpoints, cap)
         if statement_items and statement_items[0].title.startswith("Connector"):
             continue

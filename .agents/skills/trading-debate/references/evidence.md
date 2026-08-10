@@ -119,12 +119,14 @@ The fetcher may use the following sources when configured:
 - Yahoo Finance
 - Google News RSS (no API key required)
 - Bing News RSS (no API key required)
+- GDELT News (no API key required; discovery metadata only)
 - Finnhub through `FINNHUB_API_KEY` (company news, reported financials,
-  earnings surprises, recommendation trends, price targets, and EPS estimates
-  when the provider plan permits)
+  earnings surprises, recommendation trends, and price targets when the provider
+  plan permits)
 - FinMind through `FINMIND_TOKEN`
 - TWSE OpenAPI
 - MOPS
+- SEC EDGAR through a contactable `SEC_USER_AGENT`
 
 Yahoo Finance News is public-news coverage, not an exhaustive news wire. Use Yahoo Finance headlines as a limited news or sentiment proxy only.
 
@@ -144,6 +146,10 @@ Interpret the following as connector status metadata, not investment evidence:
 - Credential missing
 - Rate limited
 - Timeout
+
+Connector status metadata may include per-run quality metrics such as discovered
+and retained items, usable article bodies, and errors. These metrics measure
+source behaviour only; they are not investment evidence.
 
 A skipped or failed connector does not mean the corresponding evidence is absent or negative. Treat it as an evidence gap.
 
