@@ -12,7 +12,6 @@ import pandas as pd
 from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
-from trading_debate.connectors.gdelt import fetch_gdelt_news
 from trading_debate.connectors.google_news import fetch_google_news
 from trading_debate.connectors.market import (
     fetch_official_market_data,
@@ -368,53 +367,6 @@ def test_fetch_bing_news_respects_limit(mock_feedparser):
     assert len(items) == 3
 
 
-@patch("trading_debate.connectors.gdelt.request_json")
-def test_fetch_gdelt_news_returns_recent_articles(mock_request):
-    mock_request.return_value = {
-        "articles": [
-            {
-                "title": "台積電 expands capacity",
-                "url": "https://example.com/tsmc",
-                "seendate": datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
-                "domain": "example.com",
-                "language": "Chinese",
-                "sourcecountry": "Taiwan",
-            },
-            {
-                "title": "Old article",
-                "url": "https://example.com/old",
-                "seendate": "20200101T000000Z",
-            },
-        ]
-    }
-
-    items = fetch_gdelt_news("run-1", "2330.TW", 10, company_name="台積電")
-
-    assert len(items) == 1
-    assert items[0].source == "GDELT News"
-    assert items[0].payload["source_country"] == "Taiwan"
-    params = mock_request.call_args.args[1]
-    assert params["query"] == '"台積電"'
-    assert params["timespan"] == "7d"
-
-
-@patch("trading_debate.connectors.gdelt.request_json")
-def test_fetch_gdelt_news_records_empty_and_errors(mock_request):
-    mock_request.return_value = {"articles": []}
-    assert fetch_gdelt_news("run-1", "AAPL", 10)[0].title == "Connector empty"
-
-    mock_request.side_effect = RuntimeError("rate limited")
-    assert fetch_gdelt_news("run-1", "AAPL", 10)[0].title == "Connector error"
-
-
-@patch("trading_debate.connectors.gdelt.request_json")
-def test_fetch_gdelt_news_skips_requests_when_limit_is_zero(mock_request):
-    items = fetch_gdelt_news("run-1", "AAPL", 0)
-
-    assert items[0].title == "Connector empty"
-    mock_request.assert_not_called()
-
-
 @patch("trading_debate.connectors.finnhub.os.getenv")
 @patch("trading_debate.connectors.finnhub.request_json")
 def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv):
@@ -430,7 +382,6 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
         {"metric": {"grossMarginTTM": 0.5}},
         [{"period": "2026-01-01", "actual": 1.2, "estimate": 1.1}],
         [{"period": "2026-01-01", "buy": 10, "hold": 2, "sell": 1}],
-        {"targetMean": 200.0, "targetHigh": 220.0, "targetLow": 180.0},
         {"data": [{"endDate": "2026-01-01", "report": {}}]},
     ]
     items = fetch_finnhub("run-1", "AAPL", 10)
@@ -438,13 +389,12 @@ def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv)
     assert any(item.source == "Finnhub Basic Financials" for item in items)
     assert any(item.source == "Finnhub Earnings" for item in items)
     assert any(item.source == "Finnhub Recommendation Trends" for item in items)
-    assert any(item.source == "Finnhub Price Targets" for item in items)
     assert any(item.source == "Finnhub Financials As Reported" for item in items)
     requested_urls = [call.args[0] for call in mock_request.call_args_list]
     assert not any("stock/revenue-estimate" in url for url in requested_urls)
     assert not any("stock/eps-estimate" in url for url in requested_urls)
-    assert any("stock/price-target" in url for url in requested_urls)
-    assert "price-target" not in requested_urls
+    assert any("stock/recommendation" in url for url in requested_urls)
+    assert not any("stock/price-target" in url for url in requested_urls)
 
 
 @patch("trading_debate.connectors.finnhub.os.getenv")

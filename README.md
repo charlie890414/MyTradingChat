@@ -1,6 +1,6 @@
 # MyTradingChat
 
-Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, GDELT News, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and generates Markdown reports from that persisted data.
+Agents-native, multi-agent equity research debates for Taiwan and US stocks. The local tool uses Yahoo Finance, Google News RSS, Bing News RSS, FinMind, TWSE OpenAPI/MOPS, Finnhub, and SEC EDGAR for evidence, SQLite for durable history, and generates Markdown reports from that persisted data.
 
 Open this repository with an agent workflow and ask, for example: `分析 NVDA的多空觀點，並提供買入/持有/減碼的投資建議與目標價格`.
 
@@ -21,8 +21,8 @@ $env:SEC_USER_AGENT = "MyTradingChat/0.1 research@example.com"
 ```
 
 `FINNHUB_API_KEY` can use Finnhub's free developer tier.  When available, the
-evidence pack includes analyst recommendation history, price-target summaries,
-company news, reported financials, and
+evidence pack includes analyst recommendation history, company news, reported
+financials, and
 historical earnings surprises.  Provider-plan restrictions and empty responses
 are recorded as evidence gaps, never as investment evidence.
 
@@ -110,11 +110,8 @@ research data is retained there.
 
 ## News discovery and licensing
 
-GDELT's free DOC API adds a global article index without an API key. It supplies
-article metadata only; the existing article-body pipeline separately records whether
-the publisher page was readable. GDELT metadata and news text must be treated as
-reported information, not as instructions. Syndicated GDELT, Google, and Bing
-coverage is deduplicated by normalized title and publication date. Repeated
+Syndicated Google and Bing coverage is deduplicated by normalized title and
+publication date. Repeated
 publisher URLs are downloaded once; merged evidence retains all contributing
 sources and URLs. Each fetch also stores connector metrics, including discovered
 and retained items, available article bodies, and errors, so source usefulness

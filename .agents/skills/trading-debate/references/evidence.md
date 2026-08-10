@@ -119,10 +119,8 @@ The fetcher may use the following sources when configured:
 - Yahoo Finance
 - Google News RSS (no API key required)
 - Bing News RSS (no API key required)
-- GDELT News (no API key required; discovery metadata only)
 - Finnhub through `FINNHUB_API_KEY` (company news, reported financials,
-  earnings surprises, recommendation trends, and price targets when the provider
-  plan permits)
+  earnings surprises, and recommendation trends when the provider plan permits)
 - FinMind through `FINMIND_TOKEN`
 - TWSE OpenAPI
 - MOPS

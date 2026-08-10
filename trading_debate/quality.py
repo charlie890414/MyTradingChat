@@ -83,7 +83,7 @@ def _validate_summary_references(content: str, summary: dict[str, Any]) -> None:
     if not ids:
         return
     cited = {
-        match.group()[1:].split(":", 1)[0]
+        match.group()[1:-1].split(":", 1)[0]
         for match in _EVIDENCE_REFERENCE.finditer(content)
     }
     missing = sorted(ids - cited)

@@ -167,11 +167,10 @@ Supported sources:
 1. Yahoo Finance
 2. Google News RSS
 3. Bing News RSS
-4. GDELT News
-5. Finnhub
-6. SEC EDGAR
-7. FinMind
-8. TWSE/TPEX OpenAPI, MOPS, and official market data
+4. Finnhub
+5. SEC EDGAR
+6. FinMind
+7. TWSE/TPEX OpenAPI, MOPS, and official market data
 
 Requirements:
 
