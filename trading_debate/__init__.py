@@ -5,9 +5,12 @@ from __future__ import annotations
 from .connectors import CONNECTORS, fetch_official_market_data, fetch_yahoo
 from .connectors.technicals import compute_technicals, history_to_records
 from .db import (
+    assess_current_evidence,
     connect,
     connector_status,
+    create_evidence_batch,
     evidence_reference,
+    finish_evidence_batch,
     insert_evidence,
     insert_evidence_item,
     insert_evidence_items,
@@ -37,6 +40,7 @@ __all__ = [
     "RequestError",
     "YahooFetchResult",
     "as_json",
+    "assess_current_evidence",
     "cmd_context",
     "cmd_fetch",
     "cmd_init",
@@ -49,10 +53,12 @@ __all__ = [
     "compute_technicals",
     "connect",
     "connector_status",
+    "create_evidence_batch",
     "evidence_reference",
     "date_range_days",
     "fetch_official_market_data",
     "fetch_yahoo",
+    "finish_evidence_batch",
     "history_to_records",
     "is_recent_news",
     "insert_evidence",

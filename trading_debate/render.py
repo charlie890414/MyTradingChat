@@ -15,7 +15,7 @@ from .context import (
     parse_machine_summary,
     validate_news_content_summary,
 )
-from .db import connect, current_evidence, evidence_reference
+from .db import assess_evidence, connect, current_evidence, evidence_reference
 from .summaries import VerdictSummary
 from .utils import as_json
 
@@ -141,13 +141,8 @@ def _render_status(
 ) -> tuple[str, list[str]]:
     """Return completion state without allowing an incomplete run to look complete."""
     limitations: list[str] = []
-    titles = {row["title"] for row in evidence}
     if not evidence:
         limitations.append("尚未擷取任何證據。")
-    if not any("price" in title.lower() for title in titles):
-        limitations.append("缺少可用的價格證據。")
-    if not any("fundamental" in title.lower() for title in titles):
-        limitations.append("缺少基本面證據。")
     analyses = {row["actor"].lower() for row in parts if row["stage"] == "analysis"}
     required_analyses = {
         "fundamentals",
@@ -182,6 +177,7 @@ def _render_status(
     if not run["verdict"]:
         limitations.append("尚未取得可用的投資委員會評等。")
     else:
+        limitations.extend(assess_evidence(evidence))
         verdict_parts = [row for row in parts if row["stage"] == "verdict"]
         if len(verdict_parts) != 1 or verdict_parts[0]["actor"].lower() != "committee":
             limitations.append("投資委員會裁決紀錄不唯一或角色不正確。")

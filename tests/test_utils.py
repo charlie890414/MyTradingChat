@@ -361,6 +361,17 @@ def test_request_json_retries_on_failure():
     assert mock_urlopen.call_count == 2
 
 
+def test_request_json_rejects_oversized_response():
+    response = MagicMock()
+    response.headers = {"Content-Length": "11"}
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+
+    with patch("trading_debate.utils.urlopen", return_value=response):
+        with pytest.raises(td.RequestError, match="size limit"):
+            td.request_json("https://example.com/api", max_retries=1, max_bytes=10)
+
+
 def test_request_json_raises_request_error_after_retries():
     with patch(
         "trading_debate.utils.urlopen",

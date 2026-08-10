@@ -11,7 +11,7 @@ import sqlite3
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
@@ -26,6 +26,7 @@ _VERDICTS = ("buy", "hold", "reduce", "abstain")
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 _csrf_token = ""
+_PAGE_SIZE = 50
 
 _env = Environment(
     loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -96,6 +97,7 @@ def _detail_evidence(
     rows: list[dict[str, object]] = []
     for item in evidence:
         row = dict(item)  # type: ignore[arg-type]
+        row["url"] = _safe_external_url(row.get("url"))
         if is_news_source(str(row["source"])):
             summary = summaries.get(evidence_reference(int(row["id"])))
             row["is_news"] = True
@@ -107,6 +109,14 @@ def _detail_evidence(
             row["is_news"] = False
         rows.append(row)
     return rows
+
+
+def _safe_external_url(value: object) -> str | None:
+    """Only render web links that cannot execute code in the archive origin."""
+    if not isinstance(value, str):
+        return None
+    parsed = urlparse(value)
+    return value if parsed.scheme in {"http", "https"} and parsed.netloc else None
 
 
 def _web_news_summary(summary: dict[str, object]) -> dict[str, object]:
@@ -130,6 +140,11 @@ def _display_contributions(
     return [dict(item) for item in contributions if item["stage"] == stage]
 
 
+def _list_url(text: str, status: str, verdict: str, page: int) -> str:
+    values = {"q": text, "status": status, "verdict": verdict, "page": page}
+    return "/?" + urlencode({key: value for key, value in values.items() if value})
+
+
 class ResearchApp(BaseHTTPRequestHandler):
     db_path: Path
     csrf_token: str
@@ -147,6 +162,8 @@ class ResearchApp(BaseHTTPRequestHandler):
                     + "<script>document.querySelector('[data-delete-selected]')?.setAttribute('type','button');</script>",
                 ),
             )
+        elif parsed.path == "/healthz":
+            self._send_health()
         elif parsed.path.startswith("/static/"):
             self._send_static(parsed.path[8:])
         elif parsed.path.startswith("/runs/") and parsed.path.endswith("/report"):
@@ -194,6 +211,7 @@ class ResearchApp(BaseHTTPRequestHandler):
                 message += "；" + "；".join(warnings)
             self.send_response(HTTPStatus.SEE_OTHER)
             self.send_header("Location", "/?message=" + quote(message))
+            self._security_headers()
             self.end_headers()
             return
         if not parsed.path.startswith("/runs/") or not parsed.path.endswith("/delete"):
@@ -212,6 +230,7 @@ class ResearchApp(BaseHTTPRequestHandler):
         warning = self._delete(run_id)
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", "/?message=" + quote(warning or "研究已刪除"))
+        self._security_headers()
         self.end_headers()
 
     def _list_content(self, query: dict[str, list[str]]) -> str:
@@ -220,6 +239,10 @@ class ResearchApp(BaseHTTPRequestHandler):
             query.get("status", [""])[0],
             query.get("verdict", [""])[0],
         )
+        try:
+            page = max(1, int(query.get("page", ["1"])[0]))
+        except ValueError:
+            page = 1
         clauses, values = [], []
         if text:
             clauses.append("(symbol LIKE ? OR question LIKE ?)")
@@ -234,6 +257,11 @@ class ResearchApp(BaseHTTPRequestHandler):
             values.append(verdict)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with connect(self.db_path) as con:
+            filtered_total = con.execute(
+                "SELECT COUNT(*) FROM runs" + where, values
+            ).fetchone()[0]
+            page_count = max(1, (filtered_total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+            page = min(page, page_count)
             rows = con.execute(
                 "SELECT runs.id, runs.symbol, runs.question, runs.created_at, "
                 "runs.status, runs.verdict, runs.confidence, runs.report_path, "
@@ -242,8 +270,8 @@ class ResearchApp(BaseHTTPRequestHandler):
                 "SELECT run_id, MAX(fetched_at) AS fetched_at FROM evidence GROUP BY run_id"
                 ") AS latest_evidence ON latest_evidence.run_id = runs.id"
                 + where
-                + " ORDER BY runs.created_at DESC LIMIT 100",
-                values,
+                + " ORDER BY runs.created_at DESC LIMIT ? OFFSET ?",
+                [*values, _PAGE_SIZE, (page - 1) * _PAGE_SIZE],
             ).fetchall()
             counts = dict(
                 con.execute(
@@ -259,6 +287,17 @@ class ResearchApp(BaseHTTPRequestHandler):
             status_options=_options(_STATUSES, status),
             verdict_options=_options(_VERDICTS, verdict),
             rows=rows,
+            filtered_total=filtered_total,
+            page=page,
+            page_count=page_count,
+            previous_url=_list_url(text, status, verdict, page - 1)
+            if page > 1
+            else None,
+            next_url=(
+                _list_url(text, status, verdict, page + 1)
+                if page < page_count
+                else None
+            ),
         )
 
     def _detail(self, run_id: str) -> None:
@@ -393,6 +432,7 @@ class ResearchApp(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
+        self._security_headers()
         self.end_headers()
         self.wfile.write(payload)
 
@@ -408,8 +448,27 @@ class ResearchApp(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        self._security_headers()
         self.end_headers()
         self.wfile.write(payload)
+
+    def _send_health(self) -> None:
+        payload = b"ok\n"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self._security_headers()
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _security_headers(self) -> None:
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+        )
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
 
 
 def serve(db_path: Path, host: str = "127.0.0.1", port: int = 8765) -> None:

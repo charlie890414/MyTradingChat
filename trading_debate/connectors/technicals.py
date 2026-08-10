@@ -26,7 +26,9 @@ def _rsi(closes: pd.Series, period: int = 14) -> float | None:
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    if avg_loss.iloc[-1] == 0:
+        return 100.0 if avg_gain.iloc[-1] > 0 else 50.0
+    rs = avg_gain / avg_loss
     rsi = 100 - 100 / (1 + rs)
     return float(rsi.iloc[-1])
 

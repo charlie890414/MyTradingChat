@@ -300,7 +300,55 @@ def test_contribution_migration_normalizes_and_deduplicates(tmp_path: Path):
         ("analysis", "news", "news report"),
         ("verdict", "committee", "same verdict"),
     ]
-    assert version == 3
+    assert version == 4
+
+
+def test_assess_current_evidence_uses_only_the_latest_batch(tmp_path: Path):
+    db_path = tmp_path / "test.db"
+    with td.connect(db_path) as con:
+        con.execute(
+            "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("run-1", "AAPL", "Test", 1, td.utc_now(), "active"),
+        )
+        td.create_evidence_batch(con, "old", "run-1", "AAPL")
+        td.insert_evidence_items(
+            con,
+            [
+                td.EvidenceItem(
+                    "run-1",
+                    "Yahoo Finance",
+                    "One-year price snapshot",
+                    {"as_of": "2026-08-08", "close": 100},
+                ),
+                td.EvidenceItem(
+                    "run-1", "Yahoo Finance", "Daily OHLCV history", {"records": [1]}
+                ),
+                td.EvidenceItem(
+                    "run-1", "Yahoo Finance", "Fundamentals snapshot", {"marketCap": 1}
+                ),
+            ],
+            batch_id="old",
+        )
+        td.finish_evidence_batch(con, "old", status="completed")
+        td.create_evidence_batch(con, "new", "run-1", "AAPL")
+        td.insert_evidence_items(
+            con,
+            [
+                td.EvidenceItem(
+                    "run-1",
+                    "Yahoo Finance",
+                    "Connector available",
+                    {"state": "available"},
+                )
+            ],
+            batch_id="new",
+        )
+        td.finish_evidence_batch(con, "new", status="completed")
+
+        gaps = td.assess_current_evidence(con, "run-1")
+
+    assert len(gaps) == 3
 
 
 def test_contribution_migration_rejects_conflicting_duplicates(tmp_path: Path):

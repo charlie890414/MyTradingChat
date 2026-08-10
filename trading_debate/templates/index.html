@@ -55,6 +55,7 @@
       <button class="button danger" data-delete-selected disabled>刪除已選取項目</button>
     </div>
   </div>
+  <p class="result-count">顯示 {{ rows | length }} / {{ filtered_total }} 筆結果，第 {{ page }} / {{ page_count }} 頁。</p>
 
   <div class="table-wrap">
     <table>
@@ -100,6 +101,13 @@
       </tbody>
     </table>
   </div>
+
+  {% if previous_url or next_url %}
+  <nav class="pagination" aria-label="研究清冊分頁">
+    {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">上一頁</a>{% endif %}
+    {% if next_url %}<a class="button secondary" href="{{ next_url }}">下一頁</a>{% endif %}
+  </nav>
+  {% endif %}
 
   <div class="mobile-list">
     {% for row in rows %}

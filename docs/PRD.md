@@ -360,7 +360,8 @@ Purpose: stores analyst reports, debate turns, and Investment Committee verdicts
 ### 9.1 Local First
 
 1. SQLite data is stored in `data/research.sqlite3`.
-2. Markdown reports are stored under `reports/`.
+2. Markdown reports are rendered from SQLite on demand; `export` writes a file only
+   when the caller explicitly provides an output path.
 3. UI templates and static assets are shipped with the package under `trading_debate/templates/` and `trading_debate/static/`.
 4. `data/` and `reports/` should not be committed to Git.
 

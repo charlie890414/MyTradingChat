@@ -145,12 +145,13 @@ Build and start the web UI in a container:
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8765`. Compose publishes only to loopback by default. The service mounts the local `data/`
+Connect a reverse proxy to the internal `web:8765` service. The proxy must provide
+authentication, TLS, and access control before exposing the UI. The service mounts the local `data/`
 directory, so research data survives container recreation. Reports are rendered
 from SQLite on demand; `export` writes Markdown only to an explicit path.
-Connector credentials are not passed to the
-read-only web service. To use another host port, set `WEB_PORT` before starting
-the service, for example `$env:WEB_PORT = "8080"`.
+Connector credentials are not passed to the historical archive service. The UI can
+delete research records after explicit confirmation, so do not expose it directly
+to an untrusted network.
 
 Stop the service with `docker compose down`. This does not remove mounted
 research data.

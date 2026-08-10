@@ -27,6 +27,8 @@ def _parse_rss_date(raw: str | None) -> str | None:
 def fetch_bing_news(
     run_id: str, symbol: str, limit: int, *, company_name: str | None = None
 ) -> list[EvidenceItem]:
+    if limit <= 0:
+        return []
     search_term = company_name if company_name else symbol
     suffix = "" if company_name else _QUERY
     query = quote(f"{search_term}{suffix}")

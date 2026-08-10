@@ -11,10 +11,10 @@ from typing import Any
 from .models import EvidenceItem
 from .utils import as_json, is_news_source, utc_now
 
-RUN_STATUSES = frozenset({"active", "incomplete", "completed", "failed"})
+RUN_STATUSES = frozenset({"active", "fetching", "incomplete", "completed", "failed"})
 RATINGS = frozenset({"buy", "hold", "reduce"})
 CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _LEGACY_SUMMARY_RE = re.compile(
     r"\n## Machine-readable summary\s*```json\s*(\{.*?\})\s*```",
     flags=re.DOTALL | re.IGNORECASE,
@@ -79,7 +79,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
         PRAGMA foreign_keys = ON;
         PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS runs (
-          id TEXT PRIMARY KEY, symbol TEXT NOT NULL, question TEXT NOT NULL,
+          id TEXT PRIMARY KEY, symbol TEXT NOT NULL, requested_symbol TEXT,
+          question TEXT NOT NULL,
           debate_rounds INTEGER NOT NULL, created_at TEXT NOT NULL,
           status TEXT NOT NULL, verdict TEXT, confidence TEXT,
           report_path TEXT
@@ -124,7 +125,21 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _migrate_contributions(con)
     _migrate_evidence_batches(con)
     _migrate_evidence_dedup(con)
+    _migrate_runs(con)
     return con
+
+
+def _migrate_runs(con: sqlite3.Connection) -> None:
+    """Preserve the user's original symbol so bare Taiwan codes can be resolved."""
+    columns = {row[1] for row in con.execute("PRAGMA table_info(runs)")}
+    if "requested_symbol" not in columns:
+        with con:
+            con.execute("ALTER TABLE runs ADD COLUMN requested_symbol TEXT")
+    with con:
+        con.execute(
+            "UPDATE runs SET requested_symbol = symbol "
+            "WHERE requested_symbol IS NULL OR requested_symbol = ''"
+        )
 
 
 def _migrate_contributions(con: sqlite3.Connection) -> None:
@@ -287,6 +302,47 @@ def current_evidence(
         "AND batch_id IS NULL ORDER BY id",
         (run_id,),
     ).fetchall()
+
+
+def assess_current_evidence(con: sqlite3.Connection, run_id: str) -> list[str]:
+    """Return blocking gaps for a current-market rating in the latest evidence batch."""
+    return assess_evidence(current_evidence(con, run_id))
+
+
+def assess_evidence(evidence: list[sqlite3.Row]) -> list[str]:
+    """Return blocking gaps for a current-market rating from evidence rows."""
+    price_snapshot = False
+    price_history = False
+    fundamentals = False
+    for row in evidence:
+        if row["title"].startswith("Connector "):
+            continue
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if row["title"] == "One-year price snapshot" and isinstance(payload, dict):
+            price_snapshot = bool(payload.get("as_of")) and isinstance(
+                payload.get("close"), int | float
+            )
+        elif row["title"] == "Daily OHLCV history" and isinstance(payload, dict):
+            price_history = bool(payload.get("records"))
+        elif row["title"] == "Fundamentals snapshot" and isinstance(payload, dict):
+            fundamentals = bool(payload)
+        elif (
+            row["source"].startswith(("SEC EDGAR", "MOPS Official", "TWSE/TPEX"))
+            and isinstance(payload, dict)
+            and payload
+        ):
+            fundamentals = True
+    gaps: list[str] = []
+    if not price_snapshot:
+        gaps.append("缺少具日期與收盤價的價格快照。")
+    if not price_history:
+        gaps.append("缺少可用的日線價格歷史。")
+    if not fundamentals:
+        gaps.append("缺少可用的基本面證據。")
+    return gaps
 
 
 def evidence_reference(evidence_id: int) -> str:

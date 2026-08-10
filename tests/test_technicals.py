@@ -59,6 +59,13 @@ def test_compute_technicals_handles_zero_volume_mean():
     assert indicators["volume_trend_20d_vs_60d"] is None
 
 
+def test_compute_technicals_returns_standard_rsi_for_uninterrupted_gains():
+    history = make_history(20)
+    history.loc[:, "Close"] = range(100, 120)
+
+    assert td.compute_technicals(history)["rsi_14"] == 100.0
+
+
 def test_history_to_records_round_trips():
     history = make_history(3)
     records = td.history_to_records(history)

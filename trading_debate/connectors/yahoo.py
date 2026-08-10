@@ -218,7 +218,7 @@ def fetch_yahoo(
     items.extend(_ownership_items(run_id, symbol, yf_ticker))
 
     stored_news = 0
-    for item in news or []:
+    for item in (news or [])[:news_limit]:
         content = item.get("content", item)
         title = (
             content.get("title") or item.get("title") or "Untitled Yahoo Finance item"

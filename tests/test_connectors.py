@@ -19,7 +19,7 @@ from trading_debate.connectors.market import (
     fetch_official_valuation_data,
 )
 from trading_debate.connectors.mops import _extract_pdf_text, fetch_mops_documents
-from trading_debate.connectors.sec import fetch_sec
+from trading_debate.connectors.sec import _financial_snapshot, fetch_sec
 from trading_debate.connectors.twse import fetch_twse_mops
 from trading_debate.connectors.yahoo import fetch_yahoo
 
@@ -762,7 +762,11 @@ def test_fetch_sec_returns_company_facts_and_filings(mock_request, mock_request_
       </nonDerivativeTransaction>
     </ownershipDocument>
     """
-    items = fetch_sec("run-1", "AAPL", 10)
+    with patch(
+        "trading_debate.connectors.sec.os.getenv",
+        return_value="MyTradingChat/0.1 research@example.com",
+    ):
+        items = fetch_sec("run-1", "AAPL", 10)
     assert any(item.source == "SEC EDGAR Company Facts" for item in items)
     assert any(item.source == "SEC EDGAR Submissions" for item in items)
     filing = next(item for item in items if item.source == "SEC EDGAR Filing")
@@ -783,6 +787,13 @@ def test_fetch_sec_skips_taiwan_stock():
 def test_fetch_sec_accepts_company_name():
     items = fetch_sec("run-1", "2330.TW", 10, company_name="台積電")
     assert len(items) == 1
+    assert items[0].title == "Connector skipped"
+
+
+def test_fetch_sec_requires_contactable_user_agent():
+    with patch("trading_debate.connectors.sec.os.getenv", return_value=None):
+        items = fetch_sec("run-1", "AAPL", 10)
+
     assert items[0].title == "Connector skipped"
 
 
@@ -902,7 +913,7 @@ def test_fetch_mops_documents_extracts_disclosed_pdf_text(
                 "公司代號": "2330",
                 "主旨": "法人說明會",
                 "發言日期": "1150805",
-                "說明": "https://example.com/presentation.pdf",
+                "說明": "https://mops.twse.com.tw/presentation.pdf",
             }
         ],
         [],
@@ -921,7 +932,74 @@ def test_fetch_mops_documents_extracts_disclosed_pdf_text(
     )
     assert attachment.payload["document"]["state"] == "available"
     assert attachment.payload["document"]["text"] == "資本支出展望"
-    mock_bytes.assert_called_once_with("https://example.com/presentation.pdf")
+    mock_bytes.assert_called_once_with(
+        "https://mops.twse.com.tw/presentation.pdf", max_bytes=8_000_000
+    )
+
+
+@patch("trading_debate.connectors.mops.request_text", return_value="")
+@patch("trading_debate.connectors.mops.request_bytes")
+@patch("trading_debate.connectors.mops.request_json")
+def test_fetch_mops_documents_does_not_download_untrusted_attachment(
+    mock_request, mock_bytes, mock_text
+):
+    mock_request.side_effect = [
+        [{"公司代號": "2330", "主旨": "公告", "說明": "https://example.com/doc.pdf"}],
+        [],
+    ]
+
+    items = fetch_mops_documents("run-1", "2330.TW", 10)
+
+    attachment = next(
+        item for item in items if item.source == "MOPS Official Attachment"
+    )
+    assert attachment.payload["document"]["state"] == "rejected_url"
+    mock_bytes.assert_not_called()
+
+
+def test_financial_snapshot_derives_fcf_only_for_aligned_facts():
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "NetCashProvidedByUsedInOperatingActivities": {
+                    "units": {
+                        "USD": [
+                            {
+                                "val": 100,
+                                "form": "10-Q",
+                                "end": "2026-06-30",
+                                "filed": "2026-07-30",
+                                "fy": 2026,
+                                "fp": "Q2",
+                                "accn": "0001",
+                            }
+                        ]
+                    }
+                },
+                "PaymentsToAcquirePropertyPlantAndEquipment": {
+                    "units": {
+                        "USD": [
+                            {
+                                "val": 40,
+                                "form": "10-Q",
+                                "end": "2026-06-30",
+                                "filed": "2026-07-30",
+                                "fy": 2026,
+                                "fp": "Q2",
+                                "accn": "0001",
+                            }
+                        ]
+                    }
+                },
+            }
+        }
+    }
+    assert _financial_snapshot(facts)["Free cash flow"]["val"] == 60
+
+    facts["facts"]["us-gaap"]["PaymentsToAcquirePropertyPlantAndEquipment"]["units"][
+        "USD"
+    ][0]["end"] = "2026-03-31"
+    assert "Free cash flow" not in _financial_snapshot(facts)
 
 
 @patch(

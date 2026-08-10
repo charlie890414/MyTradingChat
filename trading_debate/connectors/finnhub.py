@@ -40,37 +40,41 @@ def fetch_finnhub(
     result: list[EvidenceItem] = []
     start, end = date_range_days(NEWS_MAX_AGE_DAYS)
 
-    try:
-        news = _request_finnhub(
-            "company-news",
-            {"symbol": symbol, "from": start, "to": end, "token": key},
-        )
-        if isinstance(news, dict) and news.get("error"):
-            raise RuntimeError(news["error"])
-        news_count = 0
-        for article in news or []:
-            published_at = article.get("datetime")
-            if not is_recent_news(published_at):
-                continue
+    if limit > 0:
+        try:
+            news = _request_finnhub(
+                "company-news",
+                {"symbol": symbol, "from": start, "to": end, "token": key},
+            )
+            if isinstance(news, dict) and news.get("error"):
+                raise RuntimeError(news["error"])
+            news_count = 0
+            for article in news or []:
+                published_at = article.get("datetime")
+                if not is_recent_news(published_at):
+                    continue
+                result.append(
+                    EvidenceItem(
+                        run_id=run_id,
+                        source="Finnhub Company News",
+                        title=article.get("headline", "Untitled article"),
+                        payload=article,
+                        url=article.get("url"),
+                        published_at=str(published_at or ""),
+                    )
+                )
+                news_count += 1
+                if news_count >= limit:
+                    break
+        except Exception as exc:
             result.append(
-                EvidenceItem(
-                    run_id=run_id,
-                    source="Finnhub Company News",
-                    title=article.get("headline", "Untitled article"),
-                    payload=article,
-                    url=article.get("url"),
-                    published_at=str(published_at or ""),
+                _status(
+                    run_id,
+                    "error",
+                    f"Company news failed: {exc}",
+                    operation="company-news",
                 )
             )
-            news_count += 1
-            if news_count >= limit:
-                break
-    except Exception as exc:
-        result.append(
-            _status(
-                run_id, "error", f"Company news failed: {exc}", operation="company-news"
-            )
-        )
 
     for metric in ("all",):
         try:

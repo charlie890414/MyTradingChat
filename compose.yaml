@@ -4,7 +4,7 @@ services:
       context: .
     init: true
     restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-8765}:8765"
+    expose:
+      - "8765"
     volumes:
       - ./data:/app/data

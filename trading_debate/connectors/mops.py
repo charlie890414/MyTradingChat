@@ -6,7 +6,7 @@ import io
 import re
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from ..models import EvidenceItem
 from ..symbols import taiwan_code
@@ -20,6 +20,11 @@ _MOPS_DISCLOSURE_PAGE = "https://mops.twse.com.tw/mops/web/t05st01"
 _MOPS_CASH_FLOW_URL = "https://mopsov.twse.com.tw/mops/web/ajax_t164sb05"
 _PDF_URL_RE = re.compile(r"https?://[^\s\"'<>]+?\.pdf(?:\?[^\s\"'<>]*)?", re.I)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_OFFICIAL_PDF_HOSTS = frozenset({"mops.twse.com.tw", "mopsov.twse.com.tw"})
+_MAX_ATTACHMENTS_PER_ANNOUNCEMENT = 3
+_MAX_PDF_BYTES = 8_000_000
+_MAX_PDF_PAGES = 30
+_MAX_PDF_TEXT_CHARS = 12_000
 
 
 def _status(run_id: str, state: str, detail: str) -> EvidenceItem:
@@ -59,15 +64,22 @@ def _extract_pdf_text(content: bytes) -> dict[str, Any]:
         reader = PdfReader(io.BytesIO(content))
         if reader.is_encrypted:
             return {"state": "encrypted", "page_count": len(reader.pages)}
+        if len(reader.pages) > _MAX_PDF_PAGES:
+            return {"state": "too_many_pages", "page_count": len(reader.pages)}
         pages = [page.extract_text() or "" for page in reader.pages]
     except Exception as exc:
         return {"state": "error", "detail": str(exc)}
-    text = "\n\n".join(page for page in pages if page.strip())
+    text = "\n\n".join(page for page in pages if page.strip())[:_MAX_PDF_TEXT_CHARS]
     return {
         "state": "available" if text else "empty",
         "page_count": len(pages),
         "text": text,
     }
+
+
+def _is_official_pdf_url(url: str) -> bool:
+    parsed = urlsplit(url)
+    return parsed.scheme == "https" and parsed.hostname in _OFFICIAL_PDF_HOSTS
 
 
 def _announcement_items(
@@ -91,11 +103,19 @@ def _announcement_items(
                 published_at=published_at,
             )
         )
-        for url in _pdf_urls(row):
-            try:
-                document = _extract_pdf_text(request_bytes(url))
-            except Exception as exc:
-                document = {"state": "download_error", "detail": str(exc)}
+        for url in _pdf_urls(row)[:_MAX_ATTACHMENTS_PER_ANNOUNCEMENT]:
+            if not _is_official_pdf_url(url):
+                document = {
+                    "state": "rejected_url",
+                    "detail": "Attachment URL is not an official MOPS HTTPS host.",
+                }
+            else:
+                try:
+                    document = _extract_pdf_text(
+                        request_bytes(url, max_bytes=_MAX_PDF_BYTES)
+                    )
+                except Exception as exc:
+                    document = {"state": "download_error", "detail": str(exc)}
             items.append(
                 EvidenceItem(
                     run_id=run_id,

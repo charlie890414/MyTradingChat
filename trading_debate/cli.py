@@ -25,6 +25,7 @@ from .context import (
 from .db import (
     CONFIDENCE_LEVELS,
     RATINGS,
+    assess_current_evidence,
     connect,
     create_evidence_batch,
     current_evidence,
@@ -53,7 +54,17 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT.parent / "data" / "research.sqlite3"
 DEFAULT_ENV = ROOT.parent / ".env"
 
-_MAX_WORKERS = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
+
+def _max_workers() -> int:
+    """Return a bounded connector concurrency level from the environment."""
+    try:
+        configured = int(os.getenv("TRADING_DEBATE_MAX_WORKERS", "2"))
+    except ValueError:
+        configured = 2
+    return min(max(configured, 1), 8)
+
+
+_MAX_WORKERS = _max_workers()
 
 
 def _connector_status_item(
@@ -85,6 +96,25 @@ def _run_connector(
         return fetcher(run_id, symbol, limit, company_name=company_name), None
     except Exception as exc:  # pragma: no cover - defensive
         return [_connector_status_item(run_id, name, "error", str(exc))], str(exc)
+
+
+def _connector_final_state(items: list[EvidenceItem]) -> str:
+    """Summarize a connector without contradicting its own status records."""
+    states = {
+        str(item.payload.get("state"))
+        for item in items
+        if item.title.startswith("Connector ") and isinstance(item.payload, dict)
+    }
+    evidence_count = sum(not item.title.startswith("Connector ") for item in items)
+    if "error" in states:
+        return "partial" if evidence_count else "error"
+    if evidence_count:
+        return "available"
+    if "skipped" in states:
+        return "skipped"
+    if "empty" in states:
+        return "empty"
+    return "available"
 
 
 def _filter_relevant_news(
@@ -166,18 +196,29 @@ def cmd_init(args: argparse.Namespace) -> None:
             raise SystemExit(f"Unknown run id: {args.run_id}")
         print(as_json(dict(run)))
         return
-    if not args.symbol or not args.question:
+    if not args.symbol or not args.question or not args.question.strip():
         raise SystemExit("init requires --symbol and --question (or --run-id)")
-    symbol = normalize_symbol(args.symbol)
+    try:
+        symbol = normalize_symbol(args.symbol)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid --symbol: {exc}") from exc
     run_id = f"{symbol}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
     with connect(args.db) as con:
         con.execute(
             """
             INSERT INTO runs(
-                id, symbol, question, debate_rounds, created_at, status
-            ) VALUES (?, ?, ?, ?, ?, 'active')
+                id, symbol, requested_symbol, question, debate_rounds, created_at,
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, 'active')
             """,
-            (run_id, symbol, args.question, args.rounds, utc_now()),
+            (
+                run_id,
+                symbol,
+                args.symbol.strip().upper(),
+                args.question.strip(),
+                args.rounds,
+                utc_now(),
+            ),
         )
     print(as_json({"run_id": run_id, "symbol": symbol, "rounds": args.rounds}))
 
@@ -214,7 +255,8 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
         raise SystemExit("--news-limit must be zero or greater")
     with connect(args.db) as con:
         run = con.execute(
-            "SELECT symbol, status FROM runs WHERE id = ?", (args.run_id,)
+            "SELECT symbol, requested_symbol, status FROM runs WHERE id = ?",
+            (args.run_id,),
         ).fetchone()
         if not run:
             raise SystemExit(f"Unknown run id: {args.run_id}")
@@ -227,7 +269,7 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
         ).fetchone():
             raise SystemExit("Cannot fetch after analysis has started")
 
-    symbol = resolve_taiwan_yahoo_symbol(run["symbol"])
+    symbol = resolve_taiwan_yahoo_symbol(run["requested_symbol"] or run["symbol"])
     batch_id = uuid4().hex
     with connect(args.db) as con:
         create_evidence_batch(con, batch_id, args.run_id, symbol)
@@ -274,10 +316,8 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
                     url=url,
                 )
             )
-    company_name = (
-        company_search_name(symbol, fetched.fundamentals, chinese_name=chinese_name)
-        if fetched
-        else None
+    company_name = company_search_name(
+        symbol, fetched.fundamentals if fetched else None, chinese_name=chinese_name
     )
 
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
@@ -330,12 +370,13 @@ def _cmd_fetch(args: argparse.Namespace) -> None:
             and item.payload["article_text_status"].get("state") == "available"
             for item in items
         )
-        errors = sum(item.title.startswith("Connector error") for item in items)
+        state = _connector_final_state(items)
+        errors = int(state in {"error", "partial"})
         evidence_items.append(
             _connector_status_item(
                 args.run_id,
                 name,
-                "error" if errors else "available",
+                state,
                 "Connector fetch metrics.",
                 metrics={
                     "discovered": discovered,
@@ -513,10 +554,8 @@ def _validate_record(
     if run["status"] in {"completed", "failed"}:
         raise SystemExit(f"Cannot record a {run['status']} run")
     if not args.force:
-        evidence_count = con.execute(
-            "SELECT COUNT(*) FROM evidence WHERE run_id = ?", (args.run_id,)
-        ).fetchone()[0]
-        if evidence_count == 0:
+        evidence = current_evidence(con, args.run_id)
+        if not any(not row["title"].startswith("Connector ") for row in evidence):
             raise SystemExit(
                 "Run has no evidence yet; run fetch first (or pass --force)"
             )
@@ -627,10 +666,7 @@ def _validate_machine_summary_at_write(
         ):
             raise SystemExit(f"Invalid machine-readable summary: {key} must be a list")
     valid_ids = {
-        evidence_reference(row["id"])
-        for row in con.execute(
-            "SELECT id FROM evidence WHERE run_id = ?", (args.run_id,)
-        ).fetchall()
+        evidence_reference(row["id"]) for row in current_evidence(con, args.run_id)
     }
     unknown_ids = sorted(set(evidence_ids + critical_ids) - valid_ids)
     if unknown_ids:
@@ -729,6 +765,13 @@ def cmd_record(args: argparse.Namespace) -> None:
             confidence,
             require_summary=existing is None,
         )
+        if verdict is not None:
+            gaps = assess_current_evidence(con, args.run_id)
+            if gaps:
+                raise SystemExit(
+                    "Cannot record a rating without core evidence; use --abstain: "
+                    + " ".join(gaps)
+                )
         if args.stage == "analysis" and actor == "news_content":
             try:
                 summary = validate_news_content_summary(summary_json)
@@ -736,9 +779,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                 raise SystemExit(f"Invalid news content summary: {exc}") from exc
             valid_ids = {
                 evidence_reference(row["id"])
-                for row in con.execute(
-                    "SELECT id FROM evidence WHERE run_id = ?", (args.run_id,)
-                ).fetchall()
+                for row in current_evidence(con, args.run_id)
             }
             unknown_ids = sorted(set(summary["evidence_ids"]) - valid_ids)
             if unknown_ids:
@@ -819,6 +860,8 @@ def cmd_record(args: argparse.Namespace) -> None:
 
 
 def cmd_search(args: argparse.Namespace) -> None:
+    if args.limit < 1:
+        raise SystemExit("--limit must be at least 1")
     term = f"%{args.query}%"
     with connect(args.db) as con:
         rows = con.execute(
@@ -841,6 +884,8 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 
 def cmd_runs(args: argparse.Namespace) -> None:
+    if args.limit < 1:
+        raise SystemExit("--limit must be at least 1")
     with connect(args.db) as con:
         rows = con.execute(
             """

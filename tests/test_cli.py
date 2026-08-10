@@ -208,6 +208,7 @@ def test_cmd_init_normalizes_taiwan_code(tmp_path: Path):
     runs = con.execute("SELECT * FROM runs").fetchall()
     assert len(runs) == 1
     assert runs[0]["symbol"] == "3037.TW"
+    assert runs[0]["requested_symbol"] == "3037"
     con.close()
 
 
@@ -426,9 +427,10 @@ def test_cmd_fetch_updates_symbol_on_resolution(
     db_path = tmp_path / "test.db"
     con = td.connect(db_path)
     con.execute(
-        "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ("run-1", "6841", "Test", 3, td.utc_now(), "active"),
+        "INSERT INTO runs("
+        "id, symbol, requested_symbol, question, debate_rounds, created_at, status"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("run-1", "6841.TW", "6841", "Test", 3, td.utc_now(), "active"),
     )
     con.commit()
     con.close()
@@ -1437,16 +1439,41 @@ def test_complete_workflow_renders_completed(tmp_path: Path, capsys):
     fetch_time = td.utc_now()
     with td.connect(db_path) as con:
         con.execute(
+            "UPDATE evidence SET title = ?, payload_json = ?, published_at = ? "
+            "WHERE run_id = ? AND id = 1",
+            (
+                "One-year price snapshot",
+                '{"as_of":"2026-08-08","close":100}',
+                "2026-08-08",
+                "run-1",
+            ),
+        )
+        con.execute(
             "INSERT INTO evidence("
             "run_id, source, title, url, published_at, payload_json, fetched_at, dedup_key"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "run-1",
                 "Yahoo Finance",
-                "Fundamentals",
+                "Daily OHLCV history",
                 None,
                 None,
-                "{}",
+                '{"records":[{"close":100}]}',
+                fetch_time,
+                "history",
+            ),
+        )
+        con.execute(
+            "INSERT INTO evidence("
+            "run_id, source, title, url, published_at, payload_json, fetched_at, dedup_key"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "run-1",
+                "Yahoo Finance",
+                "Fundamentals snapshot",
+                None,
+                None,
+                '{"marketCap":1}',
                 fetch_time,
                 "fundamentals",
             ),

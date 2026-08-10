@@ -71,6 +71,7 @@ _LEGAL_NAME_WORDS = frozenset(
 _TRACKING_PARAMETERS = frozenset({"ref", "source", "src", "oc"})
 _ARTICLE_MAX_BYTES = 8_000_000
 _ARTICLE_MAX_CHARS = 12_000
+_RESPONSE_MAX_BYTES = 10_000_000
 _IGNORED_HTML_TAGS = frozenset(
     {
         "aside",
@@ -625,6 +626,7 @@ def request_json(
     max_retries: int = 3,
     backoff: float = 1.0,
     ssl_context: ssl.SSLContext | None = None,
+    max_bytes: int = _RESPONSE_MAX_BYTES,
 ) -> Any:
     if max_retries < 1:
         raise ValueError("max_retries must be at least 1")
@@ -643,7 +645,9 @@ def request_json(
     for attempt in range(max_retries):
         try:
             with urlopen(request, timeout=timeout, context=ssl_context) as response:  # nosec B310: fixed HTTPS provider URLs only
-                return _json_safe(json.loads(response.read().decode("utf-8")))
+                return _json_safe(
+                    json.loads(_read_limited(response, max_bytes).decode("utf-8"))
+                )
         except (
             HTTPError,
             URLError,
@@ -666,6 +670,7 @@ def request_text(
     timeout: float = 20.0,
     max_retries: int = 3,
     backoff: float = 1.0,
+    max_bytes: int = _RESPONSE_MAX_BYTES,
 ) -> str:
     """Fetch text from a fixed trusted HTTPS endpoint with retry handling."""
     if max_retries < 1:
@@ -680,7 +685,7 @@ def request_text(
     for attempt in range(max_retries):
         try:
             with urlopen(request, timeout=timeout) as response:  # nosec B310: SEC URL
-                return response.read().decode("utf-8")
+                return _read_limited(response, max_bytes).decode("utf-8")
         except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError) as exc:
             last_exc = exc
             if attempt < max_retries - 1:
@@ -695,6 +700,7 @@ def request_bytes(
     timeout: float = 20.0,
     max_retries: int = 3,
     backoff: float = 1.0,
+    max_bytes: int = _RESPONSE_MAX_BYTES,
 ) -> bytes:
     """Fetch a document from a fixed trusted HTTPS endpoint with retries."""
     if max_retries < 1:
@@ -704,9 +710,22 @@ def request_bytes(
     for attempt in range(max_retries):
         try:
             with urlopen(request, timeout=timeout) as response:  # nosec B310: fixed URLs
-                return response.read()
+                return _read_limited(response, max_bytes)
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             last_exc = exc
             if attempt < max_retries - 1:
                 time.sleep(backoff * (2**attempt))
     raise RequestError(f"Failed to fetch {redact_url(url)}: {last_exc}") from last_exc
+
+
+def _read_limited(response: Any, max_bytes: int) -> bytes:
+    """Read a provider response without allowing it to exhaust process memory."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+    content_length = response.headers.get("Content-Length")
+    if content_length and int(content_length) > max_bytes:
+        raise RequestError("Response exceeds configured size limit")
+    content = response.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise RequestError("Response exceeds configured size limit")
+    return content

@@ -12,6 +12,7 @@ from trading_debate.web import (
     _env,
     _layout,
     _resolve_report_path,
+    _safe_external_url,
 )
 
 
@@ -103,6 +104,25 @@ def test_history_list_includes_dashboard_actions_and_delete_modal(tmp_path: Path
     assert 'class="local-time"' in page
 
 
+def test_history_list_paginates_and_discloses_result_count(tmp_path: Path):
+    db_path = tmp_path / "research.sqlite3"
+    with td.connect(db_path) as con:
+        for index in range(51):
+            con.execute(
+                "INSERT INTO runs(id, symbol, question, debate_rounds, created_at, status) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (f"run-{index}", f"SYM{index}", "Test", 1, td.utc_now(), "active"),
+            )
+    app = object.__new__(ResearchApp)
+    app.db_path = db_path
+
+    page = _layout("歷史研究", app._list_content({"page": ["2"]}))
+
+    assert "顯示 1 / 51 筆結果，第 2 / 2 頁。" in page
+    assert "上一頁" in page
+    assert "page=1" in page
+
+
 def test_ui_delete_does_not_touch_legacy_report_files(tmp_path: Path):
     db_path = tmp_path / "research.sqlite3"
     reports = tmp_path / "reports"
@@ -152,6 +172,15 @@ def test_layout_links_to_static_stylesheet():
     assert '<link rel="stylesheet" href="/static/style.css">' in page
     assert "Intl.DateTimeFormat('zh-TW'" in page
     assert "time.local-time" in page
+
+
+def test_web_rejects_unsafe_evidence_link_schemes():
+    assert _safe_external_url("javascript:alert(1)") is None
+    assert _safe_external_url("data:text/html,unsafe") is None
+    assert (
+        _safe_external_url("https://example.com/evidence")
+        == "https://example.com/evidence"
+    )
 
 
 def test_history_list_uses_responsive_register_layout():

@@ -40,7 +40,9 @@ _FACTS = {
 
 
 def _headers() -> dict[str, str]:
-    agent = os.getenv("SEC_USER_AGENT") or "MyTradingChat/0.1 contact@example.com"
+    agent = os.getenv("SEC_USER_AGENT")
+    if not agent:
+        raise RuntimeError("SEC_USER_AGENT is required")
     return {"User-Agent": agent}
 
 
@@ -122,12 +124,22 @@ def _financial_snapshot(facts: dict[str, Any]) -> dict[str, Any]:
         fact = _latest_fact(facts, tags)
         if fact:
             snapshot[label] = fact
-    ocf = snapshot.get("Operating cash flow", {}).get("val")
-    capex = snapshot.get("Capital expenditures", {}).get("val")
-    if isinstance(ocf, int | float) and isinstance(capex, int | float):
+    operating_cash_flow = snapshot.get("Operating cash flow", {})
+    capital_expenditures = snapshot.get("Capital expenditures", {})
+    ocf = operating_cash_flow.get("val")
+    capex = capital_expenditures.get("val")
+    alignment_fields = ("unit", "end", "fy", "fp", "form", "accn")
+    aligned = all(
+        operating_cash_flow.get(field)
+        and operating_cash_flow.get(field) == capital_expenditures.get(field)
+        for field in alignment_fields
+    )
+    if aligned and isinstance(ocf, int | float) and isinstance(capex, int | float):
         snapshot["Free cash flow"] = {
             "val": ocf - abs(capex),
-            "unit": snapshot["Operating cash flow"].get("unit"),
+            "unit": operating_cash_flow["unit"],
+            "end": operating_cash_flow["end"],
+            "form": operating_cash_flow["form"],
             "derived_from": ["Operating cash flow", "Capital expenditures"],
         }
     return snapshot
@@ -188,6 +200,14 @@ def fetch_sec(
 ) -> list[EvidenceItem]:
     if taiwan_code(symbol):
         return [_status(run_id, "skipped", "SEC EDGAR only supports US tickers.")]
+    if not os.getenv("SEC_USER_AGENT"):
+        return [
+            _status(
+                run_id,
+                "skipped",
+                "Set SEC_USER_AGENT to a contactable application and email address.",
+            )
+        ]
 
     del limit, company_name
     try:
