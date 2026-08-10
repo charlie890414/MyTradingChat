@@ -28,6 +28,7 @@ CONTEXT_ROLES = (
 _EVIDENCE_ID_RE = re.compile(r"^EVID-\d{4,}$")
 _NEWS_CONTENT_BATCH_TOKEN_BUDGET = 6_000
 _NEWS_CONTENT_TOTAL_TOKEN_BUDGET = 18_000
+_SUMMARY_TEXT_LIMIT = 600
 _NEWS_CONTENT_MAX_ARTICLES_PER_BATCH = 4
 _ARTICLE_EXCERPT_CHARS = 4_000
 _OHLCV_LIMITS = {
@@ -180,8 +181,8 @@ def assemble_context(
             base["evidence"] = [_serialize_evidence(row) for row in selected]
         if role == "news":
             summary = _latest_news_content_summary(contributions)
-            base["news_content_summary"] = summary
-        return base
+            base["news_content_summary"] = _compact_summary(summary)
+        return _finalize_context(base)
 
     summaries = _required_summaries(run, contributions, role)
     base["contribution_summaries"] = summaries
@@ -205,7 +206,13 @@ def assemble_context(
         base.update(_debate_turn_context(run, contributions))
     else:
         base["latest_full_debate_turns"] = _latest_full_debate_turns(contributions)
-    return base
+    return _finalize_context(base)
+
+
+def _finalize_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Expose a stable size metric so orchestration can monitor prompt growth."""
+    context["estimated_tokens"] = _estimate_tokens(context)
+    return context
 
 
 def _connector_status(row: sqlite3.Row) -> dict[str, Any]:
@@ -753,7 +760,7 @@ def _required_summaries(
                 "actor": row["actor"],
                 "round": row["round_no"],
                 "created_at": row["created_at"],
-                "summary": summary,
+                "summary": _compact_summary(summary),
             }
         )
     analysis_actors = {
@@ -784,6 +791,29 @@ def _required_summaries(
         if actual != expected:
             raise ContextSummaryError("committee context requires every debate summary")
     return summaries
+
+
+def _compact_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """Keep downstream handoffs bounded without dropping evidence references."""
+
+    def compact(value: Any, key: str | None = None) -> Any:
+        if isinstance(value, str):
+            return value[:_SUMMARY_TEXT_LIMIT]
+        if isinstance(value, list):
+            if key in {
+                "evidence_ids",
+                "critical_evidence_ids",
+                "related_evidence_ids",
+            }:
+                return [compact(item) for item in value]
+            return [compact(item) for item in value[:8]]
+        if isinstance(value, dict):
+            return {
+                item_key: compact(item, item_key) for item_key, item in value.items()
+            }
+        return value
+
+    return compact(summary)
 
 
 def _validate_contribution_summary(row: sqlite3.Row, summary: dict[str, Any]) -> None:

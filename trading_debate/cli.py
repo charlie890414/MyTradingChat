@@ -37,6 +37,7 @@ from .db import (
     update_run_verdict,
 )
 from .models import EvidenceItem, YahooFetchResult
+from .quality import validate_contribution_content
 from .render import cmd_export, cmd_render
 from .symbols import company_search_name, normalize_symbol, resolve_taiwan_yahoo_symbol
 from .taiwan_names import fetch_taiwan_company_profile
@@ -753,6 +754,13 @@ def cmd_record(args: argparse.Namespace) -> None:
                 )
             except (TypeError, json.JSONDecodeError) as exc:
                 raise SystemExit("--summary-json must be a valid JSON object") from exc
+        if summary_json is not None:
+            try:
+                validate_contribution_content(
+                    args.stage, actor, content.strip(), parsed_summary
+                )
+            except ValueError as exc:
+                raise SystemExit(f"Invalid contribution content: {exc}") from exc
         existing = _existing_contribution(
             con, args.run_id, args.stage, actor, args.round
         )

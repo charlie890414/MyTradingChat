@@ -122,6 +122,10 @@ The Committee must explicitly explain:
 - Which conclusions remain uncertain.
 - What future evidence would change the rating.
 
+`record` rejects a structured verdict that omits a required section or has no
+evidence citation. Every evidence ID in its machine summary must also appear in
+the Markdown.
+
 ## Persist verdict
 
 ```shell

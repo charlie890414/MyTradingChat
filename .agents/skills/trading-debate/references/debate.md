@@ -93,6 +93,10 @@ The separate `--summary-json` payload must contain:
 
 The JSON summary is required for every turn and must agree with the Markdown. Later turns and the Committee consume it as the compact debate state. Include all evidence IDs needed to verify its claims. Do not append it to the Markdown report.
 
+`record` rejects a structured turn without the three required headings, a direct
+rebuttal without a concrete `[EVID-xxxx]` citation, or a placeholder such as
+"依 context evidence" in place of a source reference.
+
 ## Debate order
 
 For each requested round:

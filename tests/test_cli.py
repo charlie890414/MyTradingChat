@@ -909,6 +909,7 @@ def test_cmd_context(tmp_path: Path, capsys):
     assert len(parsed["evidence"]) == 1
     assert parsed["evidence"][0]["source"] == "Yahoo Finance"
     assert "payload_json" not in parsed["evidence"][0]
+    assert parsed["estimated_tokens"] > 0
 
 
 def test_cmd_search(tmp_path: Path, capsys):
@@ -1023,6 +1024,7 @@ def test_cmd_render(tmp_path: Path, capsys):
     assert "Fundamentals Analyst" in content
     assert "Analysis content" in content
     assert "Full article body" not in content
+    assert '"price": 150' not in content
 
     td.cmd_render(args)
     assert json.loads(capsys.readouterr().out)["report_url"] == "/runs/run-1/report"

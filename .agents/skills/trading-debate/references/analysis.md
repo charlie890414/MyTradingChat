@@ -233,6 +233,11 @@ The separate `--summary-json` payload must contain:
 The JSON summary must be consistent with the Markdown report.
 It is the downstream handoff to Bull, Bear, and Committee agents. Include every evidence ID needed to verify the summarized claims; it does not replace the full report or source evidence.
 
+`record` rejects structured reports that omit a required heading, use a literal
+`\\n` instead of a line break, or list a summary evidence ID that does not appear
+in the Markdown. Every non-news-content analyst must cite at least one ID under
+`已確認事實`.
+
 Do not append the JSON summary to the Markdown report.
 
 ## Fundamentals Analyst

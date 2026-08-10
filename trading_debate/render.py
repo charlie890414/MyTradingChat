@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,16 +24,10 @@ def render_evidence(rows: list[sqlite3.Row]) -> str:
     for i, row in enumerate(rows, 1):
         link = f" — {row['url']}" if row["url"] else ""
         reference = evidence_reference(row["id"])
-        payload = json.loads(row["payload_json"])
-        if isinstance(payload, dict):
-            payload = {
-                key: value for key, value in payload.items() if key != "article_text"
-            }
         chunks.append(
             f"{i}. **[{reference}] {row['source']} — {row['title']}**{link}\n"
             f"   - published: {row['published_at'] or 'unknown'}\n"
-            f"   - fetched: {row['fetched_at']}\n"
-            f"   - `{json.dumps(payload, ensure_ascii=False, sort_keys=True)}`"
+            f"   - fetched: {row['fetched_at']}"
         )
     return "\n".join(chunks) or "No evidence captured."
 
@@ -54,6 +47,7 @@ def render_report_markdown(
     for part in parts:
         groups.setdefault(part["stage"], []).append(part)
     status, limitations = _render_status(run, evidence, parts)
+    verdicts = groups.pop("verdict", [])
     body = [
         f"# {run['symbol']} 多代理研究報告",
         "",
@@ -67,18 +61,22 @@ def render_report_markdown(
         "",
         "> 歷史研究僅供脈絡參考；價格、指標與新聞可能已過時，不能視為目前建議。",
         "",
-        "## 證據包",
+        "## 投資委員會結論",
         "",
-        render_evidence(evidence),
     ]
+    if verdicts:
+        body.append(verdicts[0]["content"])
+    else:
+        body.append("尚未取得投資委員會裁決。")
+    body.extend(["", "## 證據索引", "", render_evidence(evidence)])
     names = {
         "analysis": "分析師報告",
         "debate": "牛熊辯論",
         "verdict": "投資委員會結論",
     }
-    for stage in ("analysis", "debate", "verdict"):
+    for stage in ("analysis", "debate"):
         if groups.get(stage):
-            body.extend(["", f"## {names[stage]}"])
+            body.extend(["", f"## 稽核附錄：{names[stage]}"])
             for part in groups[stage]:
                 round_label = f" — round {part['round_no']}" if part["round_no"] else ""
                 body.extend(
