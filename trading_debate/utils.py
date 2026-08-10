@@ -47,6 +47,7 @@ _NEWS_SOURCES = frozenset(
         "Yahoo Finance News",
         "Google News RSS",
         "Bing News RSS",
+        "GDELT News",
         "Finnhub Company News",
         "FinMind TaiwanStockNews",
     }

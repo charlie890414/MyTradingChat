@@ -12,6 +12,7 @@ import pandas as pd
 from trading_debate.connectors.bing_news import fetch_bing_news
 from trading_debate.connectors.finmind import fetch_finmind
 from trading_debate.connectors.finnhub import fetch_finnhub
+from trading_debate.connectors.gdelt import fetch_gdelt_news
 from trading_debate.connectors.google_news import fetch_google_news
 from trading_debate.connectors.market import (
     fetch_official_market_data,
@@ -367,6 +368,53 @@ def test_fetch_bing_news_respects_limit(mock_feedparser):
     assert len(items) == 3
 
 
+@patch("trading_debate.connectors.gdelt.request_json")
+def test_fetch_gdelt_news_returns_recent_articles(mock_request):
+    mock_request.return_value = {
+        "articles": [
+            {
+                "title": "台積電 expands capacity",
+                "url": "https://example.com/tsmc",
+                "seendate": datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
+                "domain": "example.com",
+                "language": "Chinese",
+                "sourcecountry": "Taiwan",
+            },
+            {
+                "title": "Old article",
+                "url": "https://example.com/old",
+                "seendate": "20200101T000000Z",
+            },
+        ]
+    }
+
+    items = fetch_gdelt_news("run-1", "2330.TW", 10, company_name="台積電")
+
+    assert len(items) == 1
+    assert items[0].source == "GDELT News"
+    assert items[0].payload["source_country"] == "Taiwan"
+    params = mock_request.call_args.args[1]
+    assert params["query"] == '"台積電"'
+    assert params["timespan"] == "7d"
+
+
+@patch("trading_debate.connectors.gdelt.request_json")
+def test_fetch_gdelt_news_records_empty_and_errors(mock_request):
+    mock_request.return_value = {"articles": []}
+    assert fetch_gdelt_news("run-1", "AAPL", 10)[0].title == "Connector empty"
+
+    mock_request.side_effect = RuntimeError("rate limited")
+    assert fetch_gdelt_news("run-1", "AAPL", 10)[0].title == "Connector error"
+
+
+@patch("trading_debate.connectors.gdelt.request_json")
+def test_fetch_gdelt_news_skips_requests_when_limit_is_zero(mock_request):
+    items = fetch_gdelt_news("run-1", "AAPL", 0)
+
+    assert items[0].title == "Connector empty"
+    mock_request.assert_not_called()
+
+
 @patch("trading_debate.connectors.finnhub.os.getenv")
 @patch("trading_debate.connectors.finnhub.request_json")
 def test_fetch_finnhub_returns_items_when_key_present(mock_request, mock_getenv):
@@ -526,6 +574,39 @@ def test_fetch_finmind_adds_five_day_trading_trends(mock_request, mock_getenv):
         margin.payload["five_day_trend"]["field_changes"]["MarginPurchaseTodayBalance"]
         == 400
     )
+
+
+@patch("trading_debate.connectors.finmind.os.getenv", return_value="fake-token")
+@patch("trading_debate.connectors.finmind.request_json")
+def test_fetch_finmind_adds_compact_valuation_and_ownership_snapshots(
+    mock_request, mock_getenv
+):
+    mock_request.return_value = {
+        "status": 200,
+        "data": [
+            {"date": "2026-07-30", "PER": 20, "PBR": 4},
+            {"date": "2026-08-01", "PER": 21, "PBR": 4.2},
+        ],
+    }
+
+    items = fetch_finmind("run-1", "2330.TW", 10)
+
+    compact = [item for item in items if item.title.startswith("Latest ")]
+    assert len(compact) >= 7
+    valuation = next(item for item in compact if "Valuation history" in item.title)
+    assert valuation.payload["latest_date"] == "2026-08-01"
+    assert valuation.payload["available_rows"] == 2
+    assert valuation.payload["recent_dates"] == ["2026-07-30", "2026-08-01"]
+    datasets = {call.args[1]["dataset"] for call in mock_request.call_args_list}
+    assert {
+        "TaiwanStockPER",
+        "TaiwanStockShareholding",
+        "TaiwanStockHoldingSharesPer",
+        "TaiwanStockSecuritiesLending",
+        "TaiwanDailyShortSaleBalances",
+        "TaiwanStockDividend",
+        "TaiwanStockDividendResult",
+    } <= datasets
 
 
 def test_fetch_finmind_returns_skipped_for_non_taiwan_symbol():

@@ -8,6 +8,7 @@ from ..models import EvidenceItem
 from .bing_news import fetch_bing_news
 from .finmind import fetch_finmind
 from .finnhub import fetch_finnhub
+from .gdelt import fetch_gdelt_news
 from .google_news import fetch_google_news
 from .market import fetch_official_market_data, fetch_official_valuation_data
 from .mops import fetch_mops_documents
@@ -32,6 +33,7 @@ class Connector(Protocol):
 CONNECTORS: dict[str, Connector] = {
     "Google News RSS": fetch_google_news,
     "Bing News RSS": fetch_bing_news,
+    "GDELT News": fetch_gdelt_news,
     "Finnhub": fetch_finnhub,
     "SEC EDGAR": fetch_sec,
     "FinMind": fetch_finmind,
@@ -46,6 +48,7 @@ __all__ = [
     "Connector",
     "fetch_bing_news",
     "fetch_finnhub",
+    "fetch_gdelt_news",
     "fetch_finmind",
     "fetch_google_news",
     "fetch_mops_documents",

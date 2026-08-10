@@ -46,6 +46,48 @@ _DATASETS = {
         "title": "Margin purchase and short sale",
         "days": 90,
     },
+    "TaiwanStockPER": {
+        "source": "FinMind TaiwanStockPER",
+        "title": "Valuation history",
+        "days": 730,
+        "compact": True,
+    },
+    "TaiwanStockShareholding": {
+        "source": "FinMind TaiwanStockShareholding",
+        "title": "Foreign ownership",
+        "days": 365,
+        "compact": True,
+    },
+    "TaiwanStockHoldingSharesPer": {
+        "source": "FinMind TaiwanStockHoldingSharesPer",
+        "title": "Shareholding distribution",
+        "days": 365,
+        "compact": True,
+    },
+    "TaiwanStockSecuritiesLending": {
+        "source": "FinMind TaiwanStockSecuritiesLending",
+        "title": "Securities lending",
+        "days": 90,
+        "compact": True,
+    },
+    "TaiwanDailyShortSaleBalances": {
+        "source": "FinMind TaiwanDailyShortSaleBalances",
+        "title": "Short sale balances",
+        "days": 90,
+        "compact": True,
+    },
+    "TaiwanStockDividend": {
+        "source": "FinMind TaiwanStockDividend",
+        "title": "Dividend policy",
+        "days": 1460,
+        "compact": True,
+    },
+    "TaiwanStockDividendResult": {
+        "source": "FinMind TaiwanStockDividendResult",
+        "title": "Dividend results",
+        "days": 1460,
+        "compact": True,
+    },
 }
 
 
@@ -147,7 +189,7 @@ def _summary_item(
         "TaiwanStockCashFlowsStatement",
         "TaiwanStockInstitutionalInvestorsBuySell",
         "TaiwanStockMarginPurchaseShortSale",
-    }:
+    } and not config.get("compact"):
         return None
 
     latest_date, latest_rows = _latest_period_rows(rows)
@@ -159,6 +201,10 @@ def _summary_item(
         "latest_period_rows": latest_rows,
         "available_rows": len(rows),
     }
+    if config.get("compact"):
+        payload["recent_dates"] = sorted(
+            {str(row.get("date")) for row in rows if row.get("date")}
+        )[-20:]
     if dataset in {
         "TaiwanStockInstitutionalInvestorsBuySell",
         "TaiwanStockMarginPurchaseShortSale",
@@ -181,7 +227,7 @@ def _summary_item(
     return EvidenceItem(
         run_id=run_id,
         source=str(config["source"]),
-        title=titles[dataset],
+        title=titles.get(dataset, f"Latest {config['title']} snapshot"),
         payload=payload,
         published_at=latest_date,
     )
@@ -229,6 +275,8 @@ def fetch_finmind(
         summary = _summary_item(run_id, dataset, config, rows)
         if summary:
             result.append(summary)
+        if config.get("compact"):
+            continue
 
         source = str(config["source"])
         for row in rows[-limit:]:
