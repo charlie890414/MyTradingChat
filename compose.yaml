@@ -4,7 +4,9 @@ services:
       context: .
     init: true
     restart: unless-stopped
-    expose:
-      - "8765"
+    # SQLite needs to write the bind-mounted database and its WAL files.
+    user: "${TRADING_DEBATE_UID:-1000}:${TRADING_DEBATE_GID:-1000}"
+    ports:
+      - "8765:8765"
     volumes:
       - ./data:/app/data

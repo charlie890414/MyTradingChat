@@ -145,6 +145,14 @@ Build and start the web UI in a container:
 docker compose up --build -d
 ```
 
+The container must use the owner of the host `data/` directory so SQLite can
+write the database and WAL files. The compose default is UID/GID `1000:1000`;
+override it when needed:
+
+```shell
+TRADING_DEBATE_UID="$(id -u)" TRADING_DEBATE_GID="$(id -g)" docker compose up --build -d
+```
+
 Connect a reverse proxy to the internal `web:8765` service. The proxy must provide
 authentication, TLS, and access control before exposing the UI. The service mounts the local `data/`
 directory, so research data survives container recreation. Reports are rendered
