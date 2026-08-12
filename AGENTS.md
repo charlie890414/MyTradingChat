@@ -1,37 +1,31 @@
-# Repository Guidelines
+# Repository Guide
 
-## Project Structure & Module Organization
+## Setup And Checks
 
-`trading_debate/` contains the Python package and CLI: `cli.py` defines commands; `connectors/` collects evidence from Yahoo Finance, Google News RSS, Bing News RSS, Finnhub, FinMind, SEC EDGAR, and TWSE; `finance.py` is a compatibility facade that re-exports connectors and symbol utilities; `symbols.py` handles symbol normalization and Taiwan exchange resolution; `db.py` persists SQLite data; `models.py` holds shared data models; and `render.py` produces Markdown reports. Keep reusable helpers in `utils.py` and expose public package functions through `__init__.py` where appropriate.
+- Python 3.11+ is required. `uv.lock` is committed; use `uv sync --dev` for the locked development environment and run tools as `uv run ...`.
+- Focused test: `uv run pytest tests/test_cli.py::test_cmd_init`. Normal `uv run pytest` excludes tests marked `network` via `pyproject.toml`; opt in with `uv run pytest -m network`. Live tests load root `.env`, require internet, and conditionally need provider credentials.
+- Full local verification: `uv run ruff check .`, `uv run ruff format --check .`, then `uv run pytest`.
+- `uv run pre-commit run --all-files` is not a read-only check: its Ruff and whitespace hooks fix files before running the full non-network pytest suite.
+- There is no repository CI workflow; local checks and pre-commit are the executable quality gates.
 
-`tests/` contains pytest unit tests in `test_*.py` files. `.agents/skills/trading-debate/` holds the agent workflow instructions; `.agents/skills/wealthfolio/` holds the Wealthfolio MCP advisor skill and its `references/` subfolder (tool catalogue and mutation-safety guardrails). Runtime SQLite databases belong in `data/`; reports are generated from SQLite and exported only on demand.
+## Runtime Architecture
 
-## Build, Test, and Development Commands
+- `trading-debate` and `python -m trading_debate` both enter `trading_debate.cli:main`. The CLI loads only the root `.env` and defaults to `data/research.sqlite3`.
+- `cli.py` orchestrates commands; `connectors/` owns external providers; `context.py` builds role-specific views; `quality.py` and `summaries.py` validate contributions; `db.py` owns persistence; `render.py` renders from SQLite; `web.py` serves the historical UI.
+- `finance.py` and top-level exports in `__init__.py` are compatibility surfaces used by callers/tests. Preserve re-exports and patchable module attributes when moving connector or symbol code.
+- `db.connect()` creates directories/schema, enables WAL and foreign keys, and runs migrations on every connection. Test database changes with `tmp_path`; never use a database under `data/` in tests.
+- Evidence fetches are immutable batches. Contexts and reports select the latest `completed` or `partial` batch, rather than mixing evidence from multiple fetches. `render` updates run status but does not write Markdown; only `export --output ...` creates a report file.
+- Runtime databases and exports belong under ignored `data/` and `reports/`; do not commit them or treat existing local databases as fixtures.
 
-Use Python 3.11 or newer. Install the package for local CLI development:
+## Research Workflow Boundary
 
-```shell
-python -m pip install -e .
-python -m pip install -e ".[dev]"
-pytest
-ruff check .
-ruff format --check .
-```
+- Stock-analysis requests are not ordinary CLI development tasks: load `.agents/skills/trading-debate/SKILL.md` and its stage references. That workflow requires Traditional Chinese output, `uv run python -m trading_debate.cli ...`, preservation of one generated run ID, and immediate persistence of each stage.
+- During a research workflow, never pass `--db`; every stage must use the default `data/research.sqlite3`. Alternate paths split history from `search` and the web UI.
+- Provider failures and unavailable optional credentials must become explicit evidence gaps, never invented evidence. `FINNHUB_API_KEY`, `FINMIND_TOKEN`, and `FRED_API_KEY` are optional; SEC access requires a contactable `SEC_USER_AGENT`.
+- Wealthfolio requests follow the separate `.agents/skills/wealthfolio/SKILL.md` MCP workflow; do not mix its portfolio mutations with this repository's research SQLite data.
 
-The first command installs the `trading-debate` entry point; the second additionally installs development tooling. `pytest` runs the test suite. Run `ruff check .` before committing, and use `ruff format .` to apply the repository formatter.
+## Change Constraints
 
-## Coding Style & Naming Conventions
-
-Follow Ruff's configured style: four-space indentation, double quotes, 88-character lines, and Python 3.11-compatible syntax. Use `snake_case` for modules, functions, variables, and CLI options; use `PascalCase` for classes. Prefer typed, small functions with explicit inputs and outputs. Keep external-source failures and optional credentials handled gracefully; do not invent evidence when a connector is unavailable.
-
-## Testing Guidelines
-
-Write pytest tests in focused `tests/test_<area>.py` files that match the module under test (for example, `tests/test_cli.py`, `tests/test_connectors.py`, `tests/test_db.py`, `tests/test_models.py`, `tests/test_symbols.py`, `tests/test_technicals.py`, and `tests/test_utils.py`). Place shared fixtures and helpers in `tests/conftest.py`. Name tests `test_<behavior>`; the file already provides module context, so avoid redundant module prefixes. Use `tmp_path` for databases and `unittest.mock.patch` for network-backed sources, so tests remain deterministic and do not require API keys. Add regression coverage for fixes and new CLI or persistence behavior.
-
-## Commit & Pull Request Guidelines
-
-Recent history uses Conventional Commit-style subjects, such as `feat: add new news sources` and `feat(trading-debate): enhance equity research debate workflow`. Use concise imperative subjects with an optional scope. Keep commits focused. Pull requests should explain the user-visible change, list validation performed (for example, `pytest` and `ruff check .`), link related issues when available, and include sample output or screenshots for report/CLI presentation changes.
-
-## Security & Configuration
-
-Copy `.env.example` for local configuration and keep API keys only in `.env` or environment variables (`FINNHUB_API_KEY`, `FINMIND_TOKEN`). Google News RSS and Bing News RSS do not require credentials. Never commit credentials or generated databases.
+- Keep network-backed unit tests deterministic. `tests/conftest.py` globally blocks Taiwan company-profile network lookup; mock provider calls in ordinary tests and reserve real services for `tests/test_connectors_live.py`.
+- Ruff targets Python 3.11, 88 columns, double quotes, and import sorting. Tests intentionally relax `E501`, `SIM117`, and `PT006`; `dump_evidence.py` is excluded from Ruff.
+- Package HTML templates and CSS are declared as setuptools package data. Verify changes to the archive UI with `uv run pytest tests/test_web.py`; the container serves port `8765` and needs write permission for the bind-mounted `data/` directory and SQLite WAL files.
